@@ -63,10 +63,26 @@ BEGIN PACKAGENAME, Attol_Test
 
 
     COMMENT *******************************************************************************
-    COMMENT **  Subprogram:
+    COMMENT **  Subprogram signature:
     COMMENT **    
-    COMMENT **    SIGNATURE
+    COMMENT **      SIGNATURE
+    COMMENT **
+    COMMENT **  Variables:
+    COMMENT **
+    COMMENT **      parameter Param_Name : in Type_Package.Type
+    COMMENT **      global Global_Package.Global_Name : Type_Packge.Type
+    COMMENT **      return Return_Name : Type_Package.Type
+    COMMENT **      stub Variable_Name : Type_Package.Type
     COMMENT **    
+    COMMENT **  Equivalence classes:
+    COMMENT **
+    COMMENT **      Variable_1: 
+    COMMENT **          EC1 : [0..10] : VALID [000x | 000y | 000z] -- explanation: [MIN | MID | MAX] TO BE DELETED
+    COMMENT **          EC2 : [11..100] : INVALID
+    COMMENT **          ...
+    COMMENT **      Variable_2: 
+    COMMENT **          EC1 : null : INVALID
+    COMMENT **          EC2 : not null : VALID [000x]
     COMMENT **    
     COMMENT *******************************************************************************
 
@@ -77,7 +93,7 @@ BEGIN PACKAGENAME, Attol_Test
         SIGNATURE VARIABLES
         -- Declarations of the return variables
         RETURN VARIABLE
-        -- Declarations of the operation variables
+        -- Declarations of the variables implied by stubs
 
         -- Declarations of the tester defined variables
 
@@ -94,7 +110,17 @@ BEGIN PACKAGENAME, Attol_Test
                 COMMENT **      Boundary value analysis
                 COMMENT **
                 COMMENT **  Description:
-                COMMENT **      
+                COMMENT **      Covered equivalence classes:
+                COMMENT **          Variable_1.EC1.MIN
+                COMMENT **          Variable_2.EC2
+                COMMENT **
+                COMMENT **      Detailed runnign:
+                COMMENT **          Give_Is_Defined is called and returns with TRUE
+                COMMENT **          Some_Function is called
+                COMMENT **          Any custom text
+                COMMENT **
+                COMMENT **      Anomaly:
+                COMMENT **          Some error or N/A
                 COMMENT **
                 COMMENT *******************************************************************************
 
@@ -106,25 +132,22 @@ BEGIN PACKAGENAME, Attol_Test
                 COMMENT *******************************************************************************
                 COMMENT **  Global variables
                 COMMENT *******************************************************************************
-                COMMENT None
-        
+                VAR_GLOB
                 COMMENT *******************************************************************************
                 COMMENT **  Signature values
                 COMMENT *******************************************************************************
-                COMMENT None
-        
+                VAR_SIGNS
                 COMMENT *******************************************************************************
                 COMMENT **  Return value
                 COMMENT *******************************************************************************
-                COMMENT None
-
+                VAR_RET
                 COMMENT *******************************************************************************
-                COMMENT **  Operation values
+                COMMENT **  Variables implied by stubs
                 COMMENT *******************************************************************************
                 COMMENT None
 
                 --(( Set stubs ))----------------------------------------------------------------------
-
+                STUBS
                 --(( Exception ))----------------------------------------------------------------------
 
                 COMMENT *******************************************************************************
@@ -138,4 +161,3 @@ BEGIN PACKAGENAME, Attol_Test
         END TEST -- TC_Sw_SUBPROGRAM1_0001
 
     END SERVICE -- SUBPROGRAM1
-    

@@ -22,6 +22,7 @@
           <ge_alk_file_name>LOCATIONNAME.alk</ge_alk_file_name>
           <intdir>RTRT</intdir>
           <outdir>RTRT_Res</outdir>
+          <atc_instr_conditions>1</atc_instr_conditions>
         </configuration>
       </configuration_list>
     </node>

@@ -148,6 +148,45 @@ sub subprogram_entities {
 	return @result;
 }
 
+sub getStubs {
+	@stubs = ();
+	$result = "\n";
+	@called_functions = $_[0]->refs("Ada Call");
+	foreach $cf (@called_functions) {
+		$called_package = $cf->ent->parent->longname();
+		if (not $called_package ~~ @packages) {
+			push(@stubs, $cf);
+		}
+		# else {
+		# 	push(@result, getStubs($cf->ent));
+		# }
+	}
+	foreach $s (@stubs) {
+		$result = $result . "                -- STUB " . signature($s->ent) . "\n\n";
+	}
+
+	return $result;
+}
+
+sub getGlobals  {
+	@globals = ();
+	@globals = $_[0]->ents("Ada Use", "Ada Object");
+	$result = "";
+	foreach $g (@globals) {
+		if ($g->name() =~ m/g_/) {
+			$g->type() =~ m/(in )?(out )?(.*)/;
+			$type = $3;
+			if ($type =~ /(.*)( :=)/){
+				$type = $1;
+			}
+			$result = $result . "\n                -- VAR " . $g->name() . ",\n                -- & init = " .
+			$type . "\'First,\n                -- & ev ==\n";
+
+		}
+	}
+	return $result;
+}
+
 sub subprograms {
 	@subs = subprogram_entities();
 	$result = "COMMENT ****";
@@ -172,10 +211,42 @@ sub parameters {
 	return $result;
 }
 
+sub parameters_to_test {
+	@params = $_[0]->ents("Ada Declare", "Ada Parameter");
+
+	$result = "";
+
+	foreach $param (@params) {
+		$param->type() =~ m/(in )?(out )?(.*)/;
+		$type = $3;
+		if ($type =~ /(.*)( :=)/){
+			$type = $1;
+		}
+		$result = $result . "\n                -- VAR " . $param->name() . ",\n                -- & init = " .
+		$type . "\'First,\n                -- & ev ==\n";
+	}
+
+	if (@params == ()) {
+		$result = "                COMMENT None\n";
+	}
+
+	return $result;
+}
+
 sub returnvar {
 	$result = "";
 	if ($_[0]->type() ne "") {		
 		$result = "        # Ret_" . $_[0]->name() . " : " . $_[0]->type() . ";\n";
+	}
+}
+
+sub returnvar_to_test {
+	$result = "";
+	if ($_[0]->type() ne "") {		
+		$result = "\n                -- VAR " . $_[0]->name() . ",\n                -- & init =,\n                -- & ev =\n";
+	}
+	else {
+		$result = "                COMMENT None\n";
 	}
 }
 
@@ -202,6 +273,9 @@ sub functioncall {
 
 sub signature {
 	$result = $_[0]->longname() . "( " . $_[0]->parameters() . " )";
+	if ($_[0]->type() ne "") {		
+		$result = $result . " return " . $_[0]->type();
+	}
 	return $result; 
 }
 
@@ -220,6 +294,7 @@ sub ptumaker {
 		push(@part_one, $lines[$idx]);
 	} while ($lines[$idx] !~ m/-- Declaration of stubbed packages/);
 	$idx = $idx + 2;
+
 	while ($idx <= $#lines) {
 		push(@part_two, $lines[$idx]);
 		$idx++;
@@ -269,6 +344,10 @@ sub ptumaker {
 		$return = returnvar($sub);
 		$functioncall = functioncall($sub);
 		$signature = signature($sub);
+		$var_signs = parameters_to_test($sub);
+		$var_ret = returnvar_to_test($sub);
+		$var_globals = getGlobals($sub);
+		$stubs = getStubs($sub);
 		foreach $line (@act) {
 			$line =~ s/SUBPROGRAM1/$name/;
 			$line =~ s/SUBPROGRAMFULL1/$fullname/;
@@ -279,8 +358,15 @@ sub ptumaker {
 			$line =~ s/MONOGRAM/$initials/;
 			$line =~ s/PRODDATE/$date/;
 			$line =~ s/RELEASE/$release/;
+			$line =~ s/                VAR_SIGNS/$var_signs/;
+			$line =~ s/                VAR_RET/$var_ret/;
+			$line =~ s/                VAR_GLOB/$var_globals/;
+			$line =~ s/                STUBS/$stubs/;
+
 		}
 		push(@final, @act);
+
+		getGlobals($sub);
 	}
 
 	open FH, ">t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu.ptu";
@@ -361,12 +447,22 @@ sub modify_source {
 	@lines = <FH>;
 	close FH;
 
-	open FH, ">t:/Test_Environments/$test_type\_$packageu/Source/" . dottohyphen($package) . ".ads" or die "error";
-	
-	foreach (@lines) {
-		s/end $package/   --HOST_TEST_BEGIN\n   procedure Attol_Test;\n   --HOST_TEST_END\n\nend $package/i;
-		print FH;
+	$content = "";
+	foreach $l (@lines) {
+		$content = $content . $l;
 	}
+
+	open FH, ">t:/Test_Environments/$test_type\_$packageu/Source/" . dottohyphen($package) . ".ads" or die "error";
+
+	# if ($content =~ m/g_CTD_Reference/) {
+	# 	$content =~ s/end $package/--HOST_TEST_BEGIN\n   procedure Elab;\n   procedure Attol_Test;\n--HOST_TEST_END\n\nend $package/i;
+	# }
+	# else {
+		$content =~ s/end $package/--HOST_TEST_BEGIN\n   procedure Attol_Test;\n--HOST_TEST_END\n\nend $package/i;
+	# }
+
+
+	print FH $content;
 
 	close FH;
 
@@ -374,12 +470,22 @@ sub modify_source {
 	@lines = <FH>;
 	close FH;
 
-	open FH, ">t:/Test_Environments/$test_type\_$packageu/Source/" . dottohyphen($package) . ".adb" or die "error";
-	
-	foreach (@lines) {
-		s/end $package/   --HOST_TEST_BEGIN\n   procedure Attol_Test is separate;\n   --HOST_TEST_END\n\nend $package/i;
-		print FH;
+	$content = "";
+	foreach $l (@lines) {
+		$content = $content . $l;
 	}
+
+	open FH, ">t:/Test_Environments/$test_type\_$packageu/Source/" . dottohyphen($package) . ".adb" or die "error";
+
+	# if ($content =~ m/g_CTD_Reference/) {
+	# 	$content =~ s/\nbegin/\n--HOST_TEST_BEGIN\nprocedure Elab is\nbegin\n--HOST_TEST_END/s;
+	# 	$content =~ s/end $package/\n--HOST_TEST_BEGIN\nend Elab;\n\n\n   procedure Attol_Test is separate;\n--HOST_TEST_END\n\nend $package/i;
+	# }
+	# else {
+		$content =~ s/end $package/\n--HOST_TEST_BEGIN\n   procedure Attol_Test is separate;\n--HOST_TEST_END\n\nend $package/i;
+	# }
+
+	print FH $content;
 
 	close FH;
 
@@ -424,9 +530,9 @@ $lines[6] =~ m/ENVIRONMENT:\s(.*)/;
 $environmentversion = $1;
 
 mkpath("t:/Test_Environments/$test_type\_$packageu/Source/");
+mkpath("t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu/");
 
 system("und -db t:/U500.udb analyze -rescan");
-system("und -db t:/U500.udb analyze -all");
 
 $db = Understand::open("T:/U500.udb");
 

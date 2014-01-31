@@ -284,10 +284,12 @@ sub compile_routine {
 
 	my $dir;
 	if ($_[0] eq "t:/GNAT/U500.gpr") {
-		$dir = "t:/Additional_Files/"
+		$dir = "t:/Additional_Files/";
+		# push(@g_all_sources, "#dir: t:/Stubs// #file: manager-string_pt.ads");
+		# push(@g_all_sources, "#dir: t:/Stubs// #file: manager-basic_dt_string.ads");
 	}
 	else {
-		$dir = "t:/Stubs/"
+		$dir = "t:/Stubs/";
 	}
 
 	my $file;
@@ -313,6 +315,7 @@ sub compile_routine {
 	if ($status == 0) {
 		foreach $e (@g_error) {
 			if ($e =~ m/file "(.*)\.ad(.)" not found/) {
+				print $e; <STDIN>;
 				$file = lc $1 . ".ad" . $2;
 				$p = getPackageNameFromFileName($file);
 				addBodyFile($p, $dir);
@@ -662,12 +665,13 @@ sub instance_maker {
 		# DATA_TYPE BEGIN
 
 		# if file contains Data_Type instantiation
-		if ($content =~ m/\n( *)package (.*) is new Data_Type( *)/ and not $content =~ m/Data_Type_Gen/){
+		# if ($content =~ m/\n( *)package (.*) is new Data_Type( *)/ and not $content =~ m/Data_Type_Gen/){
+		if ($content =~ m/\n( *)package (.*) is new Data_Type/){
 
-			$file =~ m/t:\/Stubs\/(.*?)\.ads/;
-			$original_package_name = $1;
+			$file =~ m/t:\/Stubs\/(manager-)?(.*?)\.ads/;
+			$original_package_name = $2;
 
-			while ($content =~ m/\n( *)package (.*) is new Data_Type( *)(\n?)( *)\((.*)(\n.*)(\n.*)?;/g) {
+			while ($content =~ m/\n( *)package (.*) is new Data_Type(_Gen *)?(\n?)( *)\((.*)(\n.*)(\n.*)?;/g) {
 				# get package name
 				$package_name = $2;
 
@@ -776,12 +780,12 @@ sub instance_maker {
 
 		# PORT_TYPE BEGIN
 
-		if ($content =~ m/\n( *)package PT is new Port_Type \((.*)\n(.*)\n(.*);/) {
+		if ($content =~ m/\n( *)package PT is new Port_Type(\_Gen)? \((.*)\n(.*)\n(.*);/) {
 
 			# while ($content =~ m/\n( *)package PT is new Port_Type \((.*)\n(.*)\n(.*);/g) {
-				my $PTC_line = $2;
-				my $Ident_line = $3;
-				my $Type_line = $4;
+				my $PTC_line = $3;
+				my $Ident_line = $4;
+				my $Type_line = $5;
 
 				$PTC_line =~ /T_PTC_Name\'\(\"(.*?)\"/;
 				my $PTC = $1;
@@ -791,23 +795,29 @@ sub instance_maker {
 
 				my $Type;
 				if ($Type_line =~ /g_Data_Package => DT\)/i){
-					push(@wrong_files, $file);
+					# $new_package_name =~ /Manager\.(.*)/i;
+					# $dt_package_name = $1;
+					$type_prefix = "";
+					$dt_package_name = $new_package_name;
+					push(@withs, $new_package_name);
+					print "$dt_package_name"; <STDIN>;
 				}
 				else {
 					$Type_line =~ /g_Data_Package => (.*?)( ?)\)/i;
 					$Type = $1;
 					if ($Type =~ /(.*)\.(.*)\.(.*)/) {
 						$dt_package_name = $3;
-						$type_prefix = $2;
+						$type_prefix = $2 . "_";
 					}
 					else {
 						$Type =~ /(.*)\.(.*)/;
 						$dt_package_name = $2;
-						$type_prefix = $1;
+						$type_prefix = $1 . "_";
 					}
+				}
 
-					$content =~ m/package (.*) is/;
-					$package_name = $1;
+					$content =~ m/package (Manager\.)?(.*) is/;
+					$package_name = $2;
 
 					$new_package_name = $package_name . "_PT";
 
@@ -835,10 +845,10 @@ sub instance_maker {
 							s/Manager.Port_Type_Gen.ads/$new_file.ads/;
 							s/INSTANCE_NAME/$new_package_name/;
 
-							s/with DATA_TYPE_INSTANCE;/with Manager.$type_prefix\_$dt_package_name;\nwith Types;/;
+							s/with DATA_TYPE_INSTANCE;/with Manager.$type_prefix$dt_package_name;\nwith Types;/;
 							# s/with DATA_TYPE_INSTANCE;/with $Type;\nwith Types;/;
 
-							s/renames DATA_TYPE_INSTANCE/renames Manager.$type_prefix\_$dt_package_name/;
+							s/renames DATA_TYPE_INSTANCE/renames Manager.$type_prefix$dt_package_name/;
 							# s/renames DATA_TYPE_INSTANCE/renames $Type/;
 
 							s/G_NAME_PARAMETERS/new Types.T_PTC_Name'\("$PTC"\)/;
@@ -865,7 +875,7 @@ sub instance_maker {
 				# close DT;
 
 				push(@withs, $new_package_name);
-			}
+			
 
 			# open(DT, "<$file") or die "error opening $file";
 			# @g_lines = <DT>;
@@ -1008,6 +1018,7 @@ sub instance_maker {
 			print $original_package_name . "\n";
 
 			$content =~	s/(\n[^-])*pragma Elaborate_All\s*\(Data_Type\)/$1--pragma Elaborate_All(Data_Type)/s;
+			$content =~	s/( *)(\( *)?G_Value_Type( *)=> (.*),/--$1$2G_Value_Type$3=> $4,/gi;
 			$content =~	s/( *)(\( *)?G_Default_Value( *)=> (.*),/--$1$2G_Default_Value$3=> $4,/gi;
 			$content =~	s/( *)G_Default_Value( *)=> (.*)\);/--$1G_Default_Value$2=> $3\);\n--HOST_TEST_END/gi;
 			$content =~	s/( *)G_Unit_Of_Measure( *)=> (.*)\);/--$1G_Unit_Of_Measure$2=> $3\);\n--HOST_TEST_END/gi;
@@ -1037,6 +1048,45 @@ sub instance_maker {
 		# 	push(@modded_files, $file)
 		# }
 	}
+}
+
+sub modify_source {
+
+	@sources = scan("t:/Source/");
+
+	foreach $source (@sources) {
+
+		$file = getAbsolutePathFromRegistryValue($source) . getFileNameFromRegistryValue($source);
+
+		if (getTypeFromRegistryValue($source) eq "body") {
+
+			open FH, "<$file" or die "error";
+			@lines = <FH>;
+			close FH;
+
+			$content = "";
+			foreach $l (@lines) {
+				$content = $content . $l;
+			}
+
+			$content =~ m/package body (.*) is/;
+			$package = $1;
+
+			open FH, ">$file" or die "error";
+
+			if ($content =~ m/g_CTD_Reference/) {
+				$content =~ s/\nbegin/\n--HOST_TEST_BEGIN\nprocedure Elab is\nbegin\n--HOST_TEST_END/s;
+				$content =~ s/end $package;/\n--HOST_TEST_BEGIN\nend Elab;\n--HOST_TEST_END\n\nend $package;/i;
+			}
+
+			print FH $content;
+
+			close FH;
+
+		}
+
+	}
+
 }
 
 sub readExceptions {
@@ -1152,6 +1202,8 @@ sub main {
 	print "Copying sources\n";
 	copydir("t:/temp/", "t:/Source/", "all", 0);
 
+	modify_source();
+
 	@g_original_sources = scan("t:/Source/");
 	@g_additional_sources = scan("t:/Additional_Files/");
 	@g_all_sources = (@g_additional_sources, @g_original_sources);
@@ -1163,9 +1215,6 @@ sub main {
 			push(@packagesList, "$packageName.$type");
 		}
 	}
-
-	# print "Modifying EMCs\n";
-	# emc_modifier();
 
 	print "Gathering spec files\n";
 	foreach $source (@g_all_sources) {
