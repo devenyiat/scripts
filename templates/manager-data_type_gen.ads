@@ -26,6 +26,9 @@
 with Types;
 with Manager.Interfaces;
 
+with TYPE_PREFIX;
+with USE
+
 --generic
 --   type g_Value_Type is private;
 --   g_Default_Value   : in g_Value_Type;

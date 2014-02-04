@@ -3,6 +3,9 @@ use Class::Struct;
 use File::Copy;
 use File::Path;
 use Understand;
+use threads;
+use threads::shared;
+use Thread::Semaphore;
 
 my @CC_list = ();
 
@@ -25,7 +28,7 @@ if ($ARGV[0] eq "-manual") {
 	$mode = 2;
 }
 
-print $mode . "\n";
+# print $mode . "\n";
 
 
 # --------------
@@ -40,6 +43,7 @@ print $mode . "\n";
 @g_original_sources = ();
 @g_all_sources = ();
 @g_exceptions = ();
+
 # --------------
 
 sub scan {
@@ -115,11 +119,21 @@ sub readfile {
 	close FH;
 }
 
+sub readFile {
+	@result = ();
+	open FH, "<$_[0]" or die "error reading $_[0]";
+	@result = <FH>;
+	close FH;
+	return @result;
+}
+
 sub readerror {
+	$semaphore->down();
 	@g_error = ();
 	open FH, "<$workdir/error";
 	@g_error = <FH>;
 	close FH;
+	$semaphore->up();
 }
 
 sub printerror {
@@ -156,6 +170,49 @@ sub isArray {
 	return 0;
 }
 
+sub readProgress {
+
+	@stat = readFile("$workdir/stat");
+	
+	if ($stat[$#stat-1] =~ m/\((.*)\%\)/) {
+		if ($progress < $1) {
+			$progress = $1;
+			$changed = 1;
+		}
+	}
+}
+
+sub writeProgress {
+	open STAT, ">$workdir/stat";
+	print STAT "$_[0]\%";
+	close STAT;
+}
+
+sub showProgress {
+	print "thread has been created";
+	while (1) {
+		$changed = 0;
+		if ($running == 1) {
+			if ($phase != 2) {
+				readProgress();
+			}
+			system("cls");
+			print "$ProgressText{$phase}\n";
+			print "0%                                            100%\n";
+			print "$progress\n";
+			for ($i = 0; $i < int($progress / 2); $i++) {
+				print "\333";
+			}
+		}
+		if ($changed == 1 or $running == 0) {
+			sleep(2);
+		}
+		else {
+			sleep(5);
+		}
+	}
+}
+
 # parameters: packageName, where to put the stub
 
 sub createBodyForPackage
@@ -163,7 +220,8 @@ sub createBodyForPackage
 	
 	# checkPoint("called createBodyForPackage with $_[0]");
 
-	$specfile = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName($_[0], "spec")) . getFileNameFromPackageName($_[0], "spec");
+	# $specfile = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName($_[0], "spec")) . getFileNameFromPackageName($_[0], "spec");
+	$specfile = "t:/Stubs/" . getFileNameFromPackageName($_[0], "spec");
 
 	_generateBody($specfile, $_[1]);
 
@@ -193,24 +251,38 @@ sub createBodyForPackage
 		# 		<STDIN>;
 		# 	}
 		# }
-		readerror();
-		foreach $e (@g_error) {
-			if ($e =~ m/but file \"(}.*)\.adb\" was not found/) {
-				$file = lc $1 . ".adb";
-				$p = getPackageNameFromFileName($file);
-				addBodyFile($p, "t:/Stubs/");
-				last;
-			}
-		}
+		# readerror();
+		# foreach $e (@g_error) {
+		# 	if ($e =~ m/but file \"(}.*)\.adb\" was not found/) {
+		# 		$file = lc $1 . ".adb";
+		# 		$p = getPackageNameFromFileName($file);
+		# 		addBodyFile($p, "t:/Stubs/");
+		# 		last;
+		# 	}
+		# }
 	}
 }
 
+# sub openStdError {
+# 	$semaphore->down();
+# 	# open STDERR, ">$workdir/error";
+# 	# open STDOUT, ">out";
+# 	$semaphore->up();
+# }
+
+# sub closeStdError {
+# 	$semaphore->down();
+# 	# close STDOUT;
+# 	# close STDERR;
+# 	$semaphore->up();
+# }
+
 sub _generateBody
 {
-	open STDERR, ">$workdir/error";
-	print "gnatstub -f -t -It:/Stubs/ $_[0] $_[1]\n";
-	system("gnatstub -f -t -It:/Stubs/ $_[0] $_[1]");
-	close STDERR;
+	# openStdError();
+	print LOG "gnatstub -f -t -It:/Stubs/ $_[0] $_[1]\n";
+	system("gnatstub -f -t -It:/Stubs/ $_[0] $_[1] 2>$workdir/error");
+	# closeStdError();
 }
 
 sub _updateBody
@@ -223,6 +295,8 @@ sub _updateBody
 	$package;
 	$return_type;
 	$infunc = 0;
+
+	my @functions = ();
 
 	open FH, ">$filename";
 
@@ -243,6 +317,13 @@ sub _updateBody
 				$string = $1;
 				$package = $1;
 			}
+
+			$newstring = $string;
+			$newstring =~ tr/\"/'/;
+
+			push(@functions, $newstring);
+			@list = grep(/$newstring/, @functions);
+			$counter = $#list + 1;
 		}
 
 		if (m/return (\S*)( is)?\n/ and $1 !~ m/;/) {
@@ -262,9 +343,7 @@ sub _updateBody
 			}
 		}
 
-		$newstring = $string;
-		$newstring =~ tr/\"/'/;
-		s/(\s*)pragma Compile_Time_Warning \(Standard.True,(.*)/$1Ada.Text_IO.Put_Line \(\"$newstring is called\"\);/;
+		s/(\s*)pragma Compile_Time_Warning \(Standard.True,(.*)/$1Ada.Text_IO.Put_Line \(\"$newstring \#$counter is called\"\);/;
 
 		s/package body $package is/with Ada.Text_IO;\npackage body $package is/;
 
@@ -285,8 +364,6 @@ sub compile_routine {
 	my $dir;
 	if ($_[0] eq "t:/GNAT/U500.gpr") {
 		$dir = "t:/Additional_Files/";
-		# push(@g_all_sources, "#dir: t:/Stubs// #file: manager-string_pt.ads");
-		# push(@g_all_sources, "#dir: t:/Stubs// #file: manager-basic_dt_string.ads");
 	}
 	else {
 		$dir = "t:/Stubs/";
@@ -296,17 +373,17 @@ sub compile_routine {
 	my $status = 0;
 	my $exit = 0;
 
-	# @g_additional_sources = scan("t:/Additional_Files/");
-	# @g_all_sources = (@g_additional_sources, @g_original_sources);
-
-	open STDERR, ">$workdir/error";
-	system("gprbuild -ws -d $_[0]");
-	close STDERR;
+	# openStdError();
+	$running = 1;
+	system("\"c:\\GNAT\\2013\\bin\\gprbuild.exe\" -q -d $_[0] 1>$workdir/stat 2>$workdir/error");
+	$running = 0;
+	# closeStdError();
 
 	readerror();
 
 	if ($g_error[$#error] !~ m/failed/) {
 		$status = 2;
+		system("cls");
 		print "\n-----------------------";
 		print "\n| compilation is done |";
 		print "\n-----------------------\n";
@@ -315,10 +392,16 @@ sub compile_routine {
 	if ($status == 0) {
 		foreach $e (@g_error) {
 			if ($e =~ m/file "(.*)\.ad(.)" not found/) {
-				print $e; <STDIN>;
 				$file = lc $1 . ".ad" . $2;
-				$p = getPackageNameFromFileName($file);
-				addBodyFile($p, $dir);
+				if (not $file ~~ @backup) {
+					push (@backup, $file);
+					$p = getPackageNameFromFileName($file);
+					addSpecFile($p);
+				}
+				else {
+					print "PEOPLE DO SOMETHING!! ($file cannot be found, but really needed)\nIf you found press ENTER";
+					<STDIN>;
+				}
 				$status = 1;
 			}
 			if ($e =~ m/cannot generate code for file (.*)\.ads/ or $e =~ m/but file \"(.*)\.adb\" was not found/) {
@@ -327,9 +410,12 @@ sub compile_routine {
 				addBodyFile($p, $dir);
 				$status = 1;
 			}
-			if ($e =~ m/(.*?):(.*)body of generic unit \"(.*)\" not found/) {
+			# if ($e =~ m/([\w|\-]*)\.ads:(.*)body of generic unit \"(.*)\" not found/) {
+			if ($e =~ m/(.*):(.*)body of generic unit \"(.*)\" not found/) {
 
+				# $absolutePath = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName(getPackageNameFromFileName($1 . ".ads"), "spec"));
 				$absolutePath = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName(getPackageNameFromFileName($1), "spec"));
+				# $fileName = getFileNameFromPackageName(getPackageNameFromFileName($1 . ".ads"), "spec");
 				$fileName = getFileNameFromPackageName(getPackageNameFromFileName($1), "spec");
 				$file = $absolutePath . $fileName;
 				$generic_unit = $3;
@@ -347,7 +433,7 @@ sub compile_routine {
 
 			}
 
-			if ($e =~ m/(.*)\.adb:(.*):(.*): unconstrained subtype not allowed \(need initialization\)/) {
+			if ($e =~ m/([\w|\-]*)\.adb:(.*):(.*): unconstrained subtype not allowed \(need initialization\)/) {
 				$p = $1;
 				$file = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName($1, "body")) . $1 . ".adb";
 
@@ -369,7 +455,7 @@ sub compile_routine {
 
 				# checkPoint($file);
 
-			}			
+			}
 		}
 	}
 
@@ -379,10 +465,10 @@ sub compile_routine {
 			print $e;
 		}
 		print "\n-----------------------\n\n";
-		print "\nwaiting for user interaction...\nType OK when error is eliminated...";
-		do {
+		print "\nwaiting for user interaction...\nPress ENTER when error is eliminated...";
+		# do {
 			$in = <STDIN>;
-		} while ($in eq "OK");
+		# } while ($in eq "OK");
 		if ($_[0] eq "t:/GNAT/U500.gpr"){
 			copyAdsFiles;
 		}
@@ -418,30 +504,11 @@ sub listFiles {
 
 	$counter = $#matches + 1;
 
-	# print "Please choose the most appropriate one to continue:\n\n";
-	# foreach $element (@CC_list) {
-	# 	if ($_[1] eq "spec") {
-	# 		if ($element =~ m/#file: $package.1.ada/i or $element =~ m/#file: $package.ads/i) {
-	# 			push(@matches, $element);
-	# 			print $counter . " - $element \n\n";
-	# 			$counter = $counter + 1;
-	# 		}
-	# 	}
-	# 	else {
-	# 		if ($element =~ m/#file: $package.2.ada/i or $element =~ m/#file: $package.adb/i) {
-	# 			push(@matches, $element);
-	# 			print $counter . " - $element \n\n";
-	# 			$counter = $counter + 1;
-	# 		}
-	# 	}
-	# }
-	# print "-----------------------\n";
-
 	$num = 0;
 
 	if ($counter > 0) {
 		if ($counter == 1) {
-			print "\nautomatically selected..\n\n";
+			print LOG "\n" . getPackageNameFromRegistryValue($matches[0]) . " has been automatically selected..\n\n";
 			$result = $matches[0];
 		}
 		else {
@@ -457,7 +524,7 @@ sub listFiles {
 		}
 	}
 	else {
-		print "$package not found\n";
+		print LOG "$package not found\n";
 		$result = "nullPointerException";
 	}
 
@@ -571,66 +638,7 @@ sub addBodyFile {
 			gatherSpecFiles($_[0], "body");
 			updateDatabase();
 			openDatabase();
-			checkPoint($_[0]);
-		}
-	}
-}
-
-sub emc_modifier {
-	my @ads_files = ();
-	my @adb_files = ();
-	$modded = 0;
-
-	foreach $line (@g_original_sources){
-
-		my $new_file = getAbsolutePathFromRegistryValue($line) . getFileNameFromRegistryValue($line);
-		if ($new_file =~ /.ads/){
-			push(@ads_files, $new_file);
-		}
-		if ($new_file =~ /.adb/){
-			push(@adb_files, $new_file);
-		}
-	}
-
-	# foreach $file (@ads_files) {
-
-	# 	open(DT, "<$file");
-	# 	@g_lines = <DT>;
-	# 	close DT;
-	# 	open (DT, ">$file");
-
-	# 	foreach (@g_lines) {
-	# 		if (s/private package (\S*) is/--HOST_TEST_BEGIN\n--private package $1 is\npackage $1 is\n--HOST_TEST_END/){
-	# 			$modded = 1;
-	# 		}
-	# 		print DT or die;
-	# 	}
-
-	# 	close DT;
-	# }
-
-	foreach $file (@adb_files) {
-
-		$modded = 0;
-
-		if ($file =~ m/vital\-/) {
-			open(DT, "<$file");
-			@g_lines = <DT>;
-			close DT;
-			open (DT, ">$file");
-
-			foreach (@g_lines) {
-				if (s/^begin/--HOST_TEST_BEGIN\nprocedure Elab is\n--HOST_TEST_END\nbegin/){
-					$modded = 1;
-				}
-				if ($modded == 1) {
-					s/end Vital/--HOST_TEST_BEGIN\nend Elab;\n--HOST_TEST_END\nend Vital/;
-				}
-				print DT;
-			}
-
-			close DT;
-
+			# checkPoint($_[0]);
 		}
 	}
 }
@@ -639,7 +647,7 @@ sub instance_maker {
 
 	my $dr = '-';
 
-	open STDERR, ">$workdir/error";
+	# openStdError();
 
 	foreach $stub (@stubs) {
 
@@ -659,17 +667,23 @@ sub instance_maker {
 		my $unit_of_measure;
 		my $type_prefix;
 		my @withs = ();
+		my @uses = ();
+		my @dt_package_names = ();
 
 		my $modded = 0;
+
+		$content =~ m/package (Manager\.)?(.*) is/;
+		$original_package_name = $2;
+
+		while ($content =~ /with (.*);\nuse (.*);/g) {
+			push @uses, "with $1;\nuse $2;\n";
+		}
 
 		# DATA_TYPE BEGIN
 
 		# if file contains Data_Type instantiation
 		# if ($content =~ m/\n( *)package (.*) is new Data_Type( *)/ and not $content =~ m/Data_Type_Gen/){
 		if ($content =~ m/\n( *)package (.*) is new Data_Type/){
-
-			$file =~ m/t:\/Stubs\/(manager-)?(.*?)\.ads/;
-			$original_package_name = $2;
 
 			while ($content =~ m/\n( *)package (.*) is new Data_Type(_Gen *)?(\n?)( *)\((.*)(\n.*)(\n.*)?;/g) {
 				# get package name
@@ -682,6 +696,8 @@ sub instance_maker {
 				copy("templates/manager-data_type_gen.ads", "t:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
 
 				addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec");
+
+				print LOG "Manager\.$new_package_name has been created\n";
 
 				# copy("Vital.EMC_Manager.Data_Type.adb","Data_Type_Instances/" . $new_file . ".adb") or die "Copy failed: $!";
 				push(@new_files, $new_file . ".ads");
@@ -718,7 +734,10 @@ sub instance_maker {
 				for (@g_lines){
 					s/Manager.Data_Type_Gen.ads/$new_file.ads/;
 					if ($type_prefix =~ /(\w+)/) {
-						s/with Types;/with Types;\nwith $type_prefix;/;
+						s/with TYPE_PREFIX;/with $type_prefix;/
+					}
+					else {
+						s/with TYPE_PREFIX;//;
 					}
 					s/INSTANCE_NAME/$new_package_name/;
 					s/G_VALUE_TYPE_PARAMATER/$value_type/;
@@ -730,9 +749,17 @@ sub instance_maker {
 						s/G_UNIT_OF_MEASURE_PARAMETER/Types.None/;
 					}
 					s/G_PRECISION_PARAMETER/1/;
+					if (@uses != ()) {
+						s/with USE/@uses/;
+					}
+					else {
+						s/with USE//;	
+					}
 					print DT;
 				}
 				close DT;
+
+				push @dt_package_names, $package_name;
 
 				# editing the original file
 				# open(DT, "<$file") or die "error opening $file";
@@ -741,7 +768,7 @@ sub instance_maker {
 				# open (DT, ">$file");
 				# foreach (@g_lines) {
 				# $content =~	s/^([^-])*pragma Elaborate_All\s*\(Data_Type\)/$1--pragma Elaborate_All(Data_Type)/;
-				$content =~	s/( *)package $package_name is new Data_Type(.*)/--HOST_TEST_BEGIN\npackage $package_name renames Manager.$new_package_name;\n--package $package_name is new Data_Type$2/;
+				# $content =~	s/( *)package $package_name is new Data_Type(.*)/--HOST_TEST_BEGIN\npackage $package_name renames Manager.$new_package_name;\n--package $package_name is new Data_Type$2/;
 				# $content =~	s/^( *)\((.*),/--\($2,/g;
 				# $content =~	s/ G_Default_Value( *)=> (.*),/--G_Default_Value$1=> $2,/gi;
 				# $content =~	s/ G_Default_Value( *)=> (.*)\);/--G_Default_Value$1=> $2\);\n--HOST_TEST_END/gi;
@@ -800,7 +827,7 @@ sub instance_maker {
 					$type_prefix = "";
 					$dt_package_name = $new_package_name;
 					push(@withs, $new_package_name);
-					print "$dt_package_name"; <STDIN>;
+					# print "$dt_package_name"; <STDIN>;
 				}
 				else {
 					$Type_line =~ /g_Data_Package => (.*?)( ?)\)/i;
@@ -830,6 +857,8 @@ sub instance_maker {
 						copy("templates/manager-port_type_gen.ads","t:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
 
 						addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec");
+
+						print LOG "Manager\.$new_package_name has been created\n";
 
 						# copy("Vital.EMC_Manager.Port_Type.adb","Port_Type_Instances/" . $new_file . ".adb") or die "Copy failed: $!";
 						push(@new_files, $new_file . ".ads");
@@ -900,7 +929,7 @@ sub instance_maker {
 
 		# Generic_Operator BEGIN
 
-		if ($content =~ m/is new (.*)\.Generic_Operator( *)\(/) {
+		if ($content =~ m/is new Generic_Operator( *)\(/) {
 
 			my $comp_ident;
 			my $comp_name;
@@ -908,9 +937,9 @@ sub instance_maker {
 			my $g_PT_Package;
 			my $constant_value;
 
-			while ($content =~ m/package Vital\.(.*) is new (.*)\.Generic_Operator( *)\(\n?(.*)\n(.*)\n(.*)\n(.*)\n(.*)\);/g){
+			while ($content =~ m/( *)package (.*) is new Generic_Operator( *)\(\n?(.*)\n(.*)\n(.*)\n(.*)\n(.*)\);/g){
 
-				$package_name = $1;
+				my $package_name = $2;
 				my $comp_ident_line = $4;
 				my $comp_name_line = $5;
 				my $OUtput_pt_ident_line = $6;
@@ -939,13 +968,18 @@ sub instance_maker {
 				$constant_value =~ /(.*)\.(.*)/;
 				$type_prefix = $1;
 
-				$new_package_name = "Inst_" . $package_name;
+				$new_package_name = $package_name . "_GO";
 
 				# creating the new files
 
-				my $new_file = lc "Vital" . $dr . "EMC_Manager" . $dr . $new_package_name;
-				mkdir "Generic_Operator_Instances";	
-				copy("Vital.Generic_Operator.ads","t:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
+				my $new_file = lc "Manager" . $dr . $new_package_name;
+				# mkdir "Generic_Operator_Instances";
+				copy("templates/manager-generic_operator.ads","t:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
+
+				addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec");
+
+				print LOG "Manager\.$new_package_name has been created\n";
+
 				# copy("Vital.Generic_Operator.adb","Generic_Operator_Instances/" . $new_file . ".adb") or die "Copy failed: $!";
 				push(@new_files, $new_file . ".ads");
 				push(@new_files, $new_file . ".adb");
@@ -957,54 +991,55 @@ sub instance_maker {
 				close DT;
 				open (DT, ">t:/Stubs/$new_file.ads");
 				foreach (@g_lines) {
-					s/Vital.Generic_Operator.ads/Vital-EMC_Manager-$new_package_name\.ads/;
+					s/Vital.Generic_Operator.ads/Manager-$new_package_name\.ads/;
 					s/INSTANCE_NAME/$new_package_name/;
 					s/COMPONENT_IDENTIFIER_INSTANCE/$comp_ident/;
 					s/COMPONENT_NAME_INSTANCE/$comp_name/;
 					s/OUTPUT_PT_IDENTIFIER_INSTANCE/$OUtput_pt_ident/;
-					s/g_PT_PACKAGE_INSTANCE/Vital.EMC_Manager.Inst\_$g_PT_Package\_PT/;
+					s/g_PT_PACKAGE_INSTANCE/Manager.$g_PT_Package\_PT/;
 					s/CONSTANT_VALUE_INSTANCE/$constant_value/;
 					if ($type_prefix =~ /(\w+)/) {
-						s/with Vital.Types;/with Vital.Types;\nwith $type_prefix;/
+						s/with TYPE_PREFIX;/with $type_prefix;/
+					}
+					else {
+						s/with TYPE_PREFIX;//;
 					}
 					print DT;
 				}
-				close DT;		
+				close DT;
 
 				# editing the original file
-				open(DT, "<$file") or die "error opening $file";
-				@g_lines = <DT>;
-				close DT;
-				open (DT, ">$file");
-				foreach (@g_lines) {
-					s/^([^-])*pragma Elaborate_All\s*\(Vital\.Generic_Operator\)/$1--pragma Elaborate_All(Vital.Generic_Operator)/;
-					s/package (.*) is new (.*)\.Generic_Operator(.*)/--HOST_TEST_BEGIN\npackage $1 renames Vital\.EMC_Manager\.$new_package_name;\n--package $1 is new $2\.Generic_Operator$3/;
-					s/ Component_Identifier/--Component_Identifier/;
-					s/ Component_Name/--Component_Name/;
-					s/ Output_PT_Identifier/--Output_PT_Identifier/;
-					s/ g_PT_Package/--g_PT_Package/;
-					s/ Constant_Value(.*);/--Constant_Value$1;\n--HOST_TEST_END/;
-					print DT;
-				}
+				# open(DT, "<$file") or die "error opening $file";
+				# @g_lines = <DT>;
+				# close DT;
+				# open (DT, ">$file") or die "error opening $file";
+				# foreach (@g_lines) {
+				# 	# print $_ . "\n";
+				# 	if (s/package (.*) is new Generic_Operator(.*)/--HOST_TEST_BEGIN\npackage $1 renames Manager\.$new_package_name;\n--package $1 is new Generic_Operator$2/) {
+				# 		print "MATCH $file";
+				# 	}
+					
+				# 	print DT;
+				# }
 				# close DT;
 
-				close DT;
+				# close DT;
 
-				# push(@withs, $new_package_name);
+				push(@withs, $new_package_name);
 			}
 
-			open(DT, "<$file") or die "error opening $file";
-			@g_lines = <DT>;
-			close DT;
-			open (DT, ">$file");
-			foreach (@g_lines) {
-				s/with Vital.Generic_Operator;/--with Vital.Generic_Operator;\nwith Vital\.EMC_Manager\.$new_package_name;/;				
-				print DT;
-			}
-			close DT;
+			# open(DT, "<$file") or die "error opening $file";
+			# @g_lines = <DT>;
+			# close DT;
+			# open (DT, ">$file");
+			# foreach (@g_lines) {
+			# 	s/with Generic_Operator;/--with Generic_Operator;\nwith Manager\.$new_package_name;/;
+			# 	print DT;
+			# }
+			# close DT;
 			# @withs = ();
 
-			# $modded = 1;
+			$modded = 1;
 		}
 
 		# close $fh;
@@ -1015,21 +1050,40 @@ sub instance_maker {
 
 		if ($modded == 1) {
 
-			print $original_package_name . "\n";
+			print LOG $original_package_name . " was modified\n";
 
-			$content =~	s/(\n[^-])*pragma Elaborate_All\s*\(Data_Type\)/$1--pragma Elaborate_All(Data_Type)/s;
-			$content =~	s/( *)(\( *)?G_Value_Type( *)=> (.*),/--$1$2G_Value_Type$3=> $4,/gi;
-			$content =~	s/( *)(\( *)?G_Default_Value( *)=> (.*),/--$1$2G_Default_Value$3=> $4,/gi;
-			$content =~	s/( *)G_Default_Value( *)=> (.*)\);/--$1G_Default_Value$2=> $3\);\n--HOST_TEST_END/gi;
-			$content =~	s/( *)G_Unit_Of_Measure( *)=> (.*)\);/--$1G_Unit_Of_Measure$2=> $3\);\n--HOST_TEST_END/gi;
-			$content =~ s/with Data_Type;/--with Data_Type;/;
+			foreach $dt (@dt_package_names) {
+				$content =~ s/( *)package $dt is new(.*)/--HOST_TEST_BEGIN\n$1package $dt renames Manager\.$original_package_name\_$dt;\n$1package $dt\_Original is new $2\n--HOST_TEST_END/;
+			}
+
+			$content =~ s/( *)package (.*) is new Attribute\.(.*)Data_Package => (\w*)(.*)/--HOST_TEST_BEGIN\n$1package $2 is new Attribute\.$3Data_Package => $4\_Original$5\n--HOST_TEST_END/g;
+
+			$content =~	s/( *)package (.*) is new Port_Type(.*),/--HOST_TEST_BEGIN\n$1package $2 renames Manager.$new_package_name;\n$1package $2\_Original is new Port_Type$3,\n--HOST_TEST_END/;
+			$content =~	s/( *)g_Data_Package => ([\w|\.]*)( *)\);/--HOST_TEST_BEGIN\n$1g_Data_Package => $2\_Original$3\);\n--HOST_TEST_END/;
+
+			$content =~ s/package (.*) is new Generic_Operator(.*)/--HOST_TEST_BEGIN\npackage $1 renames Manager\.$new_package_name;\n--package $1 is new Generic_Operator$2/;
+
+			# $content =~	s/(\n[^-])*pragma Elaborate_All\s*\(Data_Type\)/$1--pragma Elaborate_All(Data_Type)/s;
+			# $content =~	s/( *)(\( *)?G_Value_Type( *)=> (.*),/--$1$2G_Value_Type$3=> $4,/gi;
+			# $content =~	s/( *)(\( *)?G_Default_Value( *)=> (.*),/--$1$2G_Default_Value$3=> $4,/gi;
+			# $content =~	s/( *)G_Default_Value( *)=> (.*)\);/--$1G_Default_Value$2=> $3\);\n--HOST_TEST_END/gi;
+			# $content =~	s/( *)G_Unit_Of_Measure( *)=> (.*)\);/--$1G_Unit_Of_Measure$2=> $3\);\n--HOST_TEST_END/gi;
+			# $content =~ s/with Data_Type;/--with Data_Type;/;
 
 
-			$content =~	s/(\n[^-])*pragma Elaborate_All\s*\(Port_Type\)/$1--pragma Elaborate_All(Port_Type)/s;
-			$content =~	s/( *)package (.*) is new Port_Type(.*),/--HOST_TEST_BEGIN\npackage $2 renames Manager.$new_package_name;\n--package $2 is new Port_Type$3,/g;
-			$content =~	s/ g_Identifier/--g_Identifier/g;
-			$content =~	s/ g_Data_Package => (.*)\);/--g_Data_Package => $1\);\n--HOST_TEST_END/g;
-			$content =~ s/with Port_Type;/--with Port_Type;/;
+			# $content =~	s/(\n[^-])*pragma Elaborate_All\s*\(Port_Type\)/$1--pragma Elaborate_All(Port_Type)/s;
+			# $content =~	s/( *)package (.*) is new Port_Type(.*),/--HOST_TEST_BEGIN\npackage $2 renames Manager.$new_package_name;\n--package $2 is new Port_Type$3,/g;
+			# $content =~	s/ g_Identifier/--g_Identifier/g;
+			# $content =~ s/with Port_Type;/--with Port_Type;/;
+
+
+			$content =~ s/pragma Elaborate_All\s*\(Generic_Operator\)/--HOST_TEST_BEGIN\n--pragma Elaborate_All(Generic_Operator)\n--HOST_TEST_END/;
+			$content =~ s/\n( *)Component_Identifier/\n--$1Component_Identifier/;
+			$content =~ s/( *)Component_Name/--$1Component_Name/;
+			$content =~ s/( *)Output_PT_Identifier/--$1Output_PT_Identifier/;
+			$content =~ s/( *)g_PT_Package/--$1g_PT_Package/;
+			$content =~ s/( *)Constant_Value(.*);/--$1Constant_Value$1;\n--HOST_TEST_END/;
+			$content =~ s/with Generic_Operator;/--HOST_TEST_BEGIN\n--with Generic_Operator;\nwith Manager\.$new_package_name;\n--HOST_TEST_END/;
 
 
 			open (DT, ">$file");		
@@ -1048,6 +1102,8 @@ sub instance_maker {
 		# 	push(@modded_files, $file)
 		# }
 	}
+
+	# closeStdError();
 }
 
 sub modify_source {
@@ -1108,10 +1164,10 @@ sub updateDatabase {
 	if ($db != ()) {
 		$db->close();
 	}
-	open STDERR, ">$workdir/error";
-	system("und -db t:/U500.udb analyze -rescan");
-	system("und -db t:/U500.udb analyze -changed");
-	close STDERR;
+	# openStdError();
+	system("und -db t:/U500.udb analyze -rescan 2>$workdir/error");
+	system("und -db -quiet t:/U500.udb analyze -changed 2>$workdir/error");
+	# closeStdError();
 	# ($db, $status) = Understand::open("t:/U500.udb") or die "failed to open database";
 }
 
@@ -1168,7 +1224,10 @@ sub getRegistryValueFromPackageName {
 	}
 	@result = grep {/#file: $_[0].ad$ext/} @g_all_sources;
 	if (@result == ()) {
-		return "nullPointerException";
+		# print "fatal error: cannot find: $_[0].$_[1]";
+		# die;
+		 # <STDIN>;
+		 return "nullPointerException";
 	}
 	else {
 		return $result[0];
@@ -1182,6 +1241,44 @@ sub getPackageNameFromFileName {
 	return $result;
 }
 
+sub generateStubBodies {
+	$idx = 0;
+	$running = 1;
+	$c = $#stubs;
+	while (@stubs != ()) {
+		my @newstubs = ();
+		foreach $stub (@stubs) {
+
+			$progress = int($idx / $c * 100);
+
+			$body = "t:/Stubs/" . getFileNameFromPackageName(getPackageNameFromRegistryValue($stub) , "body");
+			# $spec = "t:/Stubs/" . getFileNameFromRegistryValue($stub);
+
+			if (!(-e $body)) {
+				createBodyForPackage(getPackageNameFromRegistryValue($stub), "t:/Stubs/");
+			}
+			if (!(-e $body)) {
+				readerror();
+				if ($g_error[0] !~ m/does not require a body/ and $g_error[0] !~ m/cannot have a body/) {
+					push(@newstubs, $stub);
+				}
+				else {
+					$idx++;
+				}
+			}
+			else {
+				$idx++;
+			}
+
+			# if (int($idx / $c * 50) > int($progress / 2)) {
+			# 	showProgress("Generating body for stubs");
+			# }
+		}
+		@stubs = @newstubs;
+	}
+	$running = 0;
+}
+
 # **
 # create a list of all the files on CC
 # TODO
@@ -1190,6 +1287,12 @@ sub getPackageNameFromFileName {
 @stubs = ();
 
 sub main {
+
+	open STAT, ">$workdir/stat";
+	close STAT;
+
+	open LOG, ">$workdir/log";
+
 	print "Reading q:\n";
 	if ($ARGV[1] ne "") {
 		@CC_list = (scan("q:/"), scan($ARGV[1]));
@@ -1229,77 +1332,51 @@ sub main {
 	updateDatabase();
 	openDatabase();
 
+	$phase = 1;
 	print "Starting compile routine for sources\n";
-
 	compile_routine("t:/GNAT/U500.gpr");
 
 	print "Generating instances\n";
-
 	instance_maker();
 
-	print "Starting compile routine for stubs\n";
-
 	$mode = 0;
+	
+	# copydir("t:/mods/", "t:/Stubs/", "all", 1);
+
+	$phase = 2;
+	print "Generating bodies for stubs\n";
+	generateStubBodies();
+
+	$phase = 3;
+	$proress = 0;
+	print "\n\nStarting compile routine for stubs\n";
 	compile_routine("t:/GNAT/U500Stub.gpr");
+
+	system("cls");
+	print "\n-------------------------------------------------------";
+	print "\n| your test environment has been successfully created |";
+	print "\n-------------------------------------------------------\n";
+
+	close LOG;
 }
 
+sub init {
+
+	$ProgressText{1} = "Source compilation in progress";
+	$ProgressText{2} = "Generating bodies for stubs";
+	$ProgressText{3} = "Stub compilation in progress";
+	$running = 0;
+	$progress = 0;
+	$phase = 0;
+
+	threads->create('showProgress');
+}
+
+$running; share($running);
+%ProgressText; share(%ProgressText);
+$progress; share($progress);
+$phase; share($phase);
+$semaphore = Thread::Semaphore->new();
+
+init();
 main();
-
-# # copydir("t:/known_errors/", "t:/Stubs/", "all", 1);
-# @stubs = scan("t:/Stubs/");
-
-# print "instances were successfully created\n";
-
-# openDatabase();
-
-# compile_routine("t:/GNAT/U500Stub.gpr");
-
-# @stubs = scan("t:/Stubs/");
-# # @g_all_sources = scan("t:/Stubs/");
-
-# # open STDERR, ">$workdir/error";
-
-# while (@stubs != ()) {
-# 	my @newstubs = ();
-# 	foreach $stub (@stubs) {
-
-# 		$body = "t:/Stubs/" . getFileNameFromPackageName(getPackageNameFromRegistryValue($stub) , "body");
-# 		$spec = "t:/Stubs/" . getFileNameFromRegistryValue($stub);
-
-# 		# checkPoint($body);
-# 		# checkPoint($spec);
-
-# 		# if (getPackageNameFromRegistryValue($stub) ~~ @g_exceptions) {
-# 		# 	$package = getPackageNameFromRegistryValue($stub);			
-# 		# 	$registry = getRegistryValueFromPackageName($package, "body");
-# 		# 	copyFile($registry, "t:/Stubs/", 1);
-# 		# }
-# 		if (!(-e $body)) {
-# 			createBodyForPackage(getPackageNameFromRegistryValue($stub), "t:/Stubs/");
-# 		}
-# 		if (!(-e $body)) {
-# 			readerror();
-# 			if ($g_error[0] !~ m/does not require a body/ and $g_error[0] !~ m/cannot have a body/) {
-# 				# print $g_error[0] . "\n";
-# 				push(@newstubs, $stub);
-# 			}
-# 		}
-# 	}
-# 	@stubs = @newstubs;
-# 	print "\n";
-# }
-
-# do {
-# 	open STDERR, ">$workdir/error";
-# 	system("gprbuild -ws -d t:/GNAT/U500Stub.gpr");
-# 	close STDERR;
-
-# 	readerror();
-# 	if ($g_error[$#error] =~ m/failed/) {
-# 		print $g_error[$#error-1];
-# 		print "\nPress ENTER to continue"; <STDIN>;
-# 	}
-# } while ($g_error[$#error] =~ m/failed/);
-
-
-# close STDERR;

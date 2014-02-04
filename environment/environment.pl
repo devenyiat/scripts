@@ -6,6 +6,20 @@ use Understand;
 $workdir = getcwd();
 
 @temp;
+@g_exceptions = ();
+@definestubs = ();
+
+sub readExceptions {
+	open FH, "<$workdir/exceptions.cfg";
+	@exs = <FH>;
+	close FH;
+
+	foreach $ex (@exs) {
+		$ex =~ m/(.*)\n/;
+		push(@g_exceptions, $1);
+	}
+}
+
 sub scan {
 	@temp = ();
 	scandirs($_[0]);
@@ -52,9 +66,10 @@ sub ptuname {
 }
 
 sub header {
-	$result = ptuname();
-	$result =~ m/$test_type\_(.*)/;
-	$result = $1;
+	@p = $db->lookup($packages[0], "Ada Package");
+	$result = $p[0]->longname();
+	# $result =~ m/$test_type\_(.*)/;
+	# $result = $1;
 	return $result;
 }
 
@@ -127,7 +142,7 @@ sub subprogram_entities {
 		@result = @s;
 	}
 	else {
-		@s = $p[0]->ents("Ada Declare Spec", "Ada Procedure -Local, Ada Function -Local");
+		@s = $p[0]->ents("Ada Declare Spec", "Ada Procedure ~Local, Ada Function ~Local");
 		MAIN_FOR: {
 			foreach $s (@s) {
 				@called_functions = $s->refs("Ada Call");
@@ -148,21 +163,59 @@ sub subprogram_entities {
 	return @result;
 }
 
-sub getStubs {
-	@stubs = ();
-	$result = "\n";
-	@called_functions = $_[0]->refs("Ada Call");
+sub getStubs_rec {
+	my @result = ();
+	my @called_functions = $_[0]->refs("Ada Call ~Access");
 	foreach $cf (@called_functions) {
 		$called_package = $cf->ent->parent->longname();
-		if (not $called_package ~~ @packages) {
-			push(@stubs, $cf);
+		if (not $called_package ~~ @packages and not $called_package ~~ @g_exceptions) {
+			push(@result, $cf);
+			if (not $called_package ~~ @definestubs) {
+				push(@definestubs, $called_package);
+			}
 		}
-		# else {
-		# 	push(@result, getStubs($cf->ent));
-		# }
+		else {
+			push(@result, getStubs_rec($cf->ent));
+		}
 	}
+	return @result;
+}
+
+sub getUniqueStubs {
+	@result = ();
+	@stubs = ();
+	@stubs = getStubs_rec($_[0]);
+	my @uniqueStubs = ();
 	foreach $s (@stubs) {
-		$result = $result . "                -- STUB " . signature($s->ent) . "\n\n";
+		if (not $s->ent->longname() ~~ @uniqueStubs) {
+			push(@uniqueStubs, $s->ent->longname());
+			push(@result, $s);
+		}
+	}
+	return @result;
+}
+
+sub getStubs {
+
+	$result = "";
+	my @uniqueStubs = getUniqueStubs($_[0]);
+	foreach $s (@uniqueStubs) {
+		$result = $result . "\n                -- STUB " . $s->ent->longname() . " (";
+			@params = $s->ent->ents("Ada Declare", "Ada Parameter");
+			foreach $p (@params) {
+				$result = $result . "\n                -- &   " . $p->name() . " =>  ,";
+			}
+			$result =~ s/(.*),/$1\)\n/s;
+	}
+	return $result;
+}
+
+sub getDefineSection {
+
+	$result = "";
+
+	foreach $d (@definestubs) {
+		$result = $result . "\nDEFINE STUB $d\nEND DEFINE\n";
 	}
 
 	return $result;
@@ -180,7 +233,7 @@ sub getGlobals  {
 				$type = $1;
 			}
 			$result = $result . "\n                -- VAR " . $g->name() . ",\n                -- & init = " .
-			$type . "\'First,\n                -- & ev ==\n";
+			" ,\n                -- & ev = init\n";
 
 		}
 	}
@@ -218,12 +271,19 @@ sub parameters_to_test {
 
 	foreach $param (@params) {
 		$param->type() =~ m/(in )?(out )?(.*)/;
+		$mode = $1 . $2;
 		$type = $3;
 		if ($type =~ /(.*)( :=)/){
 			$type = $1;
 		}
-		$result = $result . "\n                -- VAR " . $param->name() . ",\n                -- & init = " .
-		$type . "\'First,\n                -- & ev ==\n";
+		if ($mode eq "in ") {
+			$result = $result . "\n                -- VAR " . $param->name() . ",\n                -- & init = " .
+			" ,\n                -- & ev ==\n";
+		}
+		else {
+			$result = $result . "\n                -- VAR " . $param->name() . ",\n                -- & init ==" .
+			",\n                -- & ev = \n";
+		}
 	}
 
 	if (@params == ()) {
@@ -238,6 +298,7 @@ sub returnvar {
 	if ($_[0]->type() ne "") {		
 		$result = "        # Ret_" . $_[0]->name() . " : " . $_[0]->type() . ";\n";
 	}
+	return $result;
 }
 
 sub returnvar_to_test {
@@ -248,7 +309,23 @@ sub returnvar_to_test {
 	else {
 		$result = "                COMMENT None\n";
 	}
+	return $result;
 }
+
+# sub declareStubVars {
+# 	$result = "";
+# 	my @uniqueStubs = getUniqueStubs($_[0]);
+# 	if (@uniqueStubs != ()) {
+# 		foreach $us (@uniqueStubs) {
+# 			$result = $result . "        # Stub_" . $us->ent->name() . " : " . $us->ent->type() . ";\n";
+# 		}		
+# 	}
+# 	else {
+# 		$result = "                COMMENT None\n";
+# 	}
+# 	print $result; <STDIN>;
+# 	return $result;
+# }
 
 sub functioncall {
 	$result = "        # ";
@@ -292,8 +369,8 @@ sub ptumaker {
 	do {
 		$idx++;
 		push(@part_one, $lines[$idx]);
-	} while ($lines[$idx] !~ m/-- Declaration of stubbed packages/);
-	$idx = $idx + 2;
+	} while ($lines[$idx] !~ m/DEFINESTUBS/);
+	$idx = $idx + 1;
 
 	while ($idx <= $#lines) {
 		push(@part_two, $lines[$idx]);
@@ -319,7 +396,7 @@ sub ptumaker {
 		$line =~ s/HEADER PTUNAME, ,/HEADER $header, ,/;
 		$line =~ s/COMPONENTNAME/$componentname/;
 		if ($test_type eq "MT") {
-			$line =~ s/BEGIN PACKAGENAME, Attol_Test/BEGIN $packages[0], Attol_Test/;
+			$line =~ s/BEGIN PACKAGENAME, Attol_Test/BEGIN $header, Attol_Test/;
 		}
 		else {
 			$line =~ s/BEGIN PACKAGENAME, Attol_Test/BEGIN/;
@@ -347,7 +424,7 @@ sub ptumaker {
 		$var_signs = parameters_to_test($sub);
 		$var_ret = returnvar_to_test($sub);
 		$var_globals = getGlobals($sub);
-		$stubs = getStubs($sub);
+		$stubs_str = getStubs($sub);
 		foreach $line (@act) {
 			$line =~ s/SUBPROGRAM1/$name/;
 			$line =~ s/SUBPROGRAMFULL1/$fullname/;
@@ -361,12 +438,17 @@ sub ptumaker {
 			$line =~ s/                VAR_SIGNS/$var_signs/;
 			$line =~ s/                VAR_RET/$var_ret/;
 			$line =~ s/                VAR_GLOB/$var_globals/;
-			$line =~ s/                STUBS/$stubs/;
+			$line =~ s/                STUBS/$stubs_str/;
 
 		}
 		push(@final, @act);
+	}
 
-		getGlobals($sub);
+	$stubdefs = getDefineSection();
+	foreach (@final) {
+		if (s/DEFINESTUBS/$stubdefs/) {
+			last;
+		}
 	}
 
 	open FH, ">t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu.ptu";
@@ -533,6 +615,7 @@ mkpath("t:/Test_Environments/$test_type\_$packageu/Source/");
 mkpath("t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu/");
 
 system("und -db t:/U500.udb analyze -rescan");
+system("und -db t:/U500.udb analyze -changed");
 
 $db = Understand::open("T:/U500.udb");
 
@@ -556,6 +639,8 @@ foreach $package (@packages) {
 }
 
 %filesloc;
+
+readExceptions();
 
 scan("t:/Source/");
 foreach $f (@files_to_copy) {

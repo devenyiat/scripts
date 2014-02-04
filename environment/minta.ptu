@@ -60,7 +60,7 @@ BEGIN PACKAGENAME, Attol_Test
 -- TESTED UNIT ENVIRONNEMENT
 --------------------------------------------------------------------------------
 -- Declaration of stubbed packages
-
+DEFINESTUBS
 
     COMMENT *******************************************************************************
     COMMENT **  Subprogram signature:
@@ -94,7 +94,7 @@ BEGIN PACKAGENAME, Attol_Test
         -- Declarations of the return variables
         RETURN VARIABLE
         -- Declarations of the variables implied by stubs
-
+        
         -- Declarations of the tester defined variables
 
         TEST TC_Sw_SUBPROGRAM1_0001
@@ -144,7 +144,7 @@ BEGIN PACKAGENAME, Attol_Test
                 COMMENT *******************************************************************************
                 COMMENT **  Variables implied by stubs
                 COMMENT *******************************************************************************
-                COMMENT None
+                
 
                 --(( Set stubs ))----------------------------------------------------------------------
                 STUBS
