@@ -41,7 +41,8 @@ if ($ARGV[0] eq "-manual") {
 @packagesList = ();
 @g_additional_sources = ();
 @g_original_sources = ();
-@g_all_sources = ();
+@g_unmodified_sources = ();
+@g_generated_sources = ();
 @g_exceptions = ();
 
 # --------------
@@ -229,7 +230,7 @@ sub createBodyForPackage
 
 	if (-e $bodyfile) {
 		_updateBody($bodyfile);
-		$reg = addFileToList($_[1], $_[0], "body");
+		$reg = addFileToList($_[1], $_[0], "body", \@g_generated_sources);
 		# TODO copy stub to t:/Stubs/
 		if ($_[1] eq "t:/Additional_Files/") {
 			copyFile($reg, "t:/Stubs/", 0)
@@ -237,9 +238,9 @@ sub createBodyForPackage
 	}
 	else {
 		# checkPoint("$bodyfile is not created");
-		# if ($g_error[0] !~ m/does not require a body/ and $g_error[0] !~ m/cannot have a body/) {
-		# 	print "Cannot continue due to the following error(s):\n";
-		# 	printerror();
+		if ($debug == 1 and $g_error[0] !~ m/does not require a body/ and $g_error[0] !~ m/cannot have a body/) {
+			print "Cannot continue due to the following error(s):\n";
+			printerror();
 		# 	print "\nType \"command\" to execute a command, press ENTER anyway: ";
 		# 	$in = <STDIN>;
 		# 	if ($in eq "command\n") {
@@ -250,7 +251,8 @@ sub createBodyForPackage
 		# 		printerror();
 		# 		<STDIN>;
 		# 	}
-		# }
+			print "press ENTER to continue"; <STDIN>;
+		}
 		# readerror();
 		# foreach $e (@g_error) {
 		# 	if ($e =~ m/but file \"(}.*)\.adb\" was not found/) {
@@ -414,7 +416,7 @@ sub compile_routine {
 			if ($e =~ m/(.*):(.*)body of generic unit \"(.*)\" not found/) {
 
 				# $absolutePath = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName(getPackageNameFromFileName($1 . ".ads"), "spec"));
-				$absolutePath = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName(getPackageNameFromFileName($1), "spec"));
+				$absolutePath = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName(getPackageNameFromFileName($1), "spec"), \@g_unmodified_sources);
 				# $fileName = getFileNameFromPackageName(getPackageNameFromFileName($1 . ".ads"), "spec");
 				$fileName = getFileNameFromPackageName(getPackageNameFromFileName($1), "spec");
 				$file = $absolutePath . $fileName;
@@ -434,8 +436,15 @@ sub compile_routine {
 			}
 
 			if ($e =~ m/([\w|\-]*)\.adb:(.*):(.*): unconstrained subtype not allowed \(need initialization\)/) {
+
+				# ********
+				# * TODO *
+				# ********
+
 				$p = $1;
-				$file = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName($1, "body")) . $1 . ".adb";
+				$registryValue = getRegistryValueFromPackageName($1, "body", \@g_generated_sources);
+				$absolutePath = getAbsolutePathFromRegistryValue($registryValue);
+				$file = $absolutePath . $1 . ".adb";
 
 				open FH, "<$file";
 				my @lines = ();
@@ -451,9 +460,11 @@ sub compile_routine {
 				close FH;
 				$status = 1;
 
-				copyFile(getRegistryValueFromPackageName($p, "body"), "t:/Stubs/", 0)
+				if ($absolutePath ne "t:/Stubs/") {
+					copyFile($registryValue, "t:/Stubs/", 0)
+				}
 
-				# checkPoint($file);
+				# checkPoint($registryValue);
 
 			}
 		}
@@ -536,7 +547,7 @@ sub getImports {
 	# checkPoint("called getImports with $_[0].$_[1]\n");
 
 	my @imports = ();
-	$file = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName($_[0], $_[1])) . getFileNameFromPackageName($_[0], $_[1]);
+	$file = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName($_[0], $_[1], \@g_unmodified_sources)) . getFileNameFromPackageName($_[0], $_[1]);
 
 	open FH, "<$file";
 	my @lines = ();
@@ -588,8 +599,9 @@ sub gatherSpecFiles {
 }
 
 sub addFileToList {
+	$ref_array = $_[3];
 	$registry = "#dir: $_[0]/ #file: " . getFileNameFromPackageName($_[1], $_[2]);
-	push(@g_all_sources, $registry);
+	push(@$ref_array, $registry);
 	return $registry;
 }
 
@@ -598,7 +610,7 @@ sub addFile {
 	if ($fileToCopy ne "nullPointerException") {
 		copyFile($fileToCopy, "t:/Additional_Files/", 1);
 		copyFile($fileToCopy, "t:/Stubs/", 1);
-		addFileToList("t:/Additional_Files/", $_[0], $_[1]);
+		addFileToList("t:/Additional_Files/", $_[0], $_[1], \@g_unmodified_sources);
 		return "file added";
 	}
 	else {
@@ -695,7 +707,7 @@ sub instance_maker {
 				# mkdir "Data_Type_Instances";
 				copy("templates/manager-data_type_gen.ads", "t:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
 
-				addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec");
+				addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
 
 				print LOG "Manager\.$new_package_name has been created\n";
 
@@ -856,7 +868,7 @@ sub instance_maker {
 						# mkdir "Port_Type_Instances";
 						copy("templates/manager-port_type_gen.ads","t:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
 
-						addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec");
+						addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
 
 						print LOG "Manager\.$new_package_name has been created\n";
 
@@ -976,7 +988,7 @@ sub instance_maker {
 				# mkdir "Generic_Operator_Instances";
 				copy("templates/manager-generic_operator.ads","t:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
 
-				addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec");
+				addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
 
 				print LOG "Manager\.$new_package_name has been created\n";
 
@@ -1130,7 +1142,7 @@ sub modify_source {
 
 			open FH, ">$file" or die "error";
 
-			if ($content =~ m/g_CTD_Reference/) {
+			if ($content =~ m/g_CTD_Reference/ and $content !~ m/procedure Elab is/) {
 				$content =~ s/\nbegin/\n--HOST_TEST_BEGIN\nprocedure Elab is\nbegin\n--HOST_TEST_END/s;
 				$content =~ s/end $package;/\n--HOST_TEST_BEGIN\nend Elab;\n--HOST_TEST_END\n\nend $package;/i;
 			}
@@ -1216,13 +1228,14 @@ sub getFileNameFromPackageName {
 
 sub getRegistryValueFromPackageName {
 	my $ext;
+	my $ref_array = $_[2];
 	if ($_[1] eq "spec") {
 		$ext = "s";
 	}
 	else {
 		$ext = "b";
 	}
-	@result = grep {/#file: $_[0].ad$ext/} @g_all_sources;
+	@result = grep {/#file: $_[0].ad$ext/} @$ref_array;
 	if (@result == ()) {
 		# print "fatal error: cannot find: $_[0].$_[1]";
 		# die;
@@ -1244,7 +1257,7 @@ sub getPackageNameFromFileName {
 sub generateStubBodies {
 	$idx = 0;
 	$running = 1;
-	$c = $#stubs;
+	$c = $#stubs + 1;
 	while (@stubs != ()) {
 		my @newstubs = ();
 		foreach $stub (@stubs) {
@@ -1259,10 +1272,10 @@ sub generateStubBodies {
 			}
 			if (!(-e $body)) {
 				readerror();
-				if ($g_error[0] !~ m/does not require a body/ and $g_error[0] !~ m/cannot have a body/) {
+				if ($g_error[0] =~ m/this instantiation requires/) {
 					push(@newstubs, $stub);
 				}
-				else {
+				if ($g_error[0] =~ m/does not require a body/ or $g_error[0] =~ m/cannot have a body/) {
 					$idx++;
 				}
 			}
@@ -1309,9 +1322,9 @@ sub main {
 
 	@g_original_sources = scan("t:/Source/");
 	@g_additional_sources = scan("t:/Additional_Files/");
-	@g_all_sources = (@g_additional_sources, @g_original_sources);
+	@g_unmodified_sources = (@g_additional_sources, @g_original_sources);
 
-	foreach $source (@g_all_sources) {
+	foreach $source (@g_unmodified_sources) {
 		$packageName = getPackageNameFromRegistryValue($source);
 		$type = getTypeFromRegistryValue($source);
 		if (not "$packageName.$type" ~~ @packagesList){
@@ -1320,7 +1333,7 @@ sub main {
 	}
 
 	print "Gathering spec files\n";
-	foreach $source (@g_all_sources) {
+	foreach $source (@g_unmodified_sources) {
 		gatherSpecFiles(getPackageNameFromRegistryValue($source), getTypeFromRegistryValue($source));
 	}
 
@@ -1345,10 +1358,12 @@ sub main {
 
 	$phase = 2;
 	print "Generating bodies for stubs\n";
+	$debug = 0;
 	generateStubBodies();
 
 	$phase = 3;
-	$proress = 0;
+	$progress = 0;
+	$debug = 1;
 	print "\n\nStarting compile routine for stubs\n";
 	compile_routine("t:/GNAT/U500Stub.gpr");
 
@@ -1368,6 +1383,7 @@ sub init {
 	$running = 0;
 	$progress = 0;
 	$phase = 0;
+	$debug = 1;
 
 	threads->create('showProgress');
 }
