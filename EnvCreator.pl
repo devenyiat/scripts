@@ -15,17 +15,19 @@ my $workdir = cwd();
 
 my $mode = 0;
 
-if ($ARGV[0] eq "-auto") {
-	$mode = 0;
-} 
-if ($ARGV[0] eq "-stub") {
-	$mode = 3;
-} 
-if ($ARGV[0] eq "-nostub") {
-	$mode = 1;
-} 
-if ($ARGV[0] eq "-manual") {
-	$mode = 2;
+sub setMode {
+	if ($ARGV[0] eq "-auto") {
+		$mode = 0;
+	} 
+	if ($ARGV[0] eq "-stub") {
+		$mode = 3;
+	} 
+	if ($ARGV[0] eq "-nostub") {
+		$mode = 1;
+	} 
+	if ($ARGV[0] eq "-manual") {
+		$mode = 2;
+	}
 }
 
 # print $mode . "\n";
@@ -128,6 +130,17 @@ sub readFile {
 	return @result;
 }
 
+sub readWholeFile {
+	$result = "";
+	open FH, "<$_[0]" or die "error reading $_[0]";
+	@lines = <FH>;
+	close FH;
+	foreach $line (@lines) {
+		$result = $result . $line;
+	}
+	return $result;
+}
+
 sub readerror {
 	$semaphore->down();
 	@g_error = ();
@@ -138,10 +151,18 @@ sub readerror {
 }
 
 sub printerror {
+	$state = $_[0];
+	if ($state == 1) {
+		$running = 0;
+	}
 	readerror();
+	print "\n-----------------------\n\nerror occurred during operation:\n\n";
 	foreach $e (@g_error) {
 		print $e;
 	}
+	print "\n-----------------------\n\n";
+	print "\nwaiting for user interaction...\nPress ENTER when error is eliminated..."; <STDIN>;
+	$running = $state;
 }
 
 sub hasDiscriminant {
@@ -190,7 +211,7 @@ sub writeProgress {
 }
 
 sub showProgress {
-	print "thread has been created";
+	print "thread has been created\n";
 	while (1) {
 		$changed = 0;
 		if ($running == 1) {
@@ -238,57 +259,31 @@ sub createBodyForPackage
 	}
 	else {
 		# checkPoint("$bodyfile is not created");
-		if ($debug == 1 and $g_error[0] !~ m/does not require a body/ and $g_error[0] !~ m/cannot have a body/) {
-			print "Cannot continue due to the following error(s):\n";
-			printerror();
-		# 	print "\nType \"command\" to execute a command, press ENTER anyway: ";
-		# 	$in = <STDIN>;
-		# 	if ($in eq "command\n") {
-		# 		$in = <STDIN>;
-		# 		open STDERR, ">$workdir/error";
-		# 		system("$in");
-		# 		close STDERR;
-		# 		printerror();
-		# 		<STDIN>;
-		# 	}
-			print "press ENTER to continue"; <STDIN>;
+		readerror();
+		if ($debug == 1 
+				and $g_error[0] !~ m/does not require a body/ 
+				and $g_error[0] !~ m/cannot have a body/ 
+				and $g_error[0] !~ m/this instantiation requires/) {
+
+			printerror($running);
 		}
-		# readerror();
-		# foreach $e (@g_error) {
-		# 	if ($e =~ m/but file \"(}.*)\.adb\" was not found/) {
-		# 		$file = lc $1 . ".adb";
-		# 		$p = getPackageNameFromFileName($file);
-		# 		addBodyFile($p, "t:/Stubs/");
-		# 		last;
-		# 	}
-		# }
+		if ($g_error[0] =~ m/this instantiation requires \"(.*) \(body\)/) {
+			createBodyForPackage($1, "t:/Stubs/");
+		}
 	}
 }
 
-# sub openStdError {
-# 	$semaphore->down();
-# 	# open STDERR, ">$workdir/error";
-# 	# open STDOUT, ">out";
-# 	$semaphore->up();
-# }
-
-# sub closeStdError {
-# 	$semaphore->down();
-# 	# close STDOUT;
-# 	# close STDERR;
-# 	$semaphore->up();
-# }
-
 sub _generateBody
 {
-	# openStdError();
+
 	print LOG "gnatstub -f -t -It:/Stubs/ $_[0] $_[1]\n";
 	system("gnatstub -f -t -It:/Stubs/ $_[0] $_[1] 2>$workdir/error");
-	# closeStdError();
+
 }
 
 sub _updateBody
 {
+
 	$filename = shift;
 
 	readfile($filename);
@@ -375,11 +370,9 @@ sub compile_routine {
 	my $status = 0;
 	my $exit = 0;
 
-	# openStdError();
 	$running = 1;
 	system("\"c:\\GNAT\\2013\\bin\\gprbuild.exe\" -q -d $_[0] 1>$workdir/stat 2>$workdir/error");
 	$running = 0;
-	# closeStdError();
 
 	readerror();
 
@@ -398,6 +391,9 @@ sub compile_routine {
 				if (not $file ~~ @backup) {
 					push (@backup, $file);
 					$p = getPackageNameFromFileName($file);
+					if ($debug == 1) {
+						checkPoint($p);
+					}
 					addSpecFile($p);
 				}
 				else {
@@ -409,33 +405,41 @@ sub compile_routine {
 			if ($e =~ m/cannot generate code for file (.*)\.ads/ or $e =~ m/but file \"(.*)\.adb\" was not found/) {
 				$file = lc $1 . ".adb";
 				$p = getPackageNameFromFileName($file);
+				# if ($debug == 1) {
+				# 	checkPoint("#1 $p");
+				# }
 				addBodyFile($p, $dir);
 				$status = 1;
 			}
-			# if ($e =~ m/([\w|\-]*)\.ads:(.*)body of generic unit \"(.*)\" not found/) {
-			if ($e =~ m/(.*):(.*)body of generic unit \"(.*)\" not found/) {
+			if ($e =~ m/(.*?):(.*)body of generic unit \"(.*)\" not found/) {
 
-				# $absolutePath = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName(getPackageNameFromFileName($1 . ".ads"), "spec"));
-				$absolutePath = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName(getPackageNameFromFileName($1), "spec"), \@g_unmodified_sources);
-				# $fileName = getFileNameFromPackageName(getPackageNameFromFileName($1 . ".ads"), "spec");
-				$fileName = getFileNameFromPackageName(getPackageNameFromFileName($1), "spec");
+				$type = getTypeFromFileName($1);
+				$absolutePath = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName(getPackageNameFromFileName($1), $type, \@g_unmodified_sources) );
+				# $fileName = getFileNameFromPackageName(getPackageNameFromFileName($1), $type);
+				$fileName = $1;
 				$file = $absolutePath . $fileName;
 				$generic_unit = $3;
+
+				checkPoint($type . $absolutePath . $fileName);
 				
 				readfile($file);
 				$idx = 0;
 				while ($g_lines[$idx] !~ m/with\s*(.*)$generic_unit;/ and $idx <= $#g_lines) {
 					$idx++;
 				}
-				$g_lines[$idx] =~ m/with\s*(.*)$generic_unit;/; # print $1; <STDIN>;
+				$g_lines[$idx] =~ m/with\s*(.*)$generic_unit;/; # print @g_lines; <STDIN>;
 				$packageToAdd = lc $1 . $generic_unit;
+
+				# if ($debug == 1) {
+				# 	checkPoint("#2 $packageToAdd");
+				# }
 
 				addBodyFile($packageToAdd, $dir);
 				$status = 1;
 
 			}
 
-			if ($e =~ m/([\w|\-]*)\.adb:(.*):(.*): unconstrained subtype not allowed \(need initialization\)/) {
+			if ($e =~ m/(.*)\.adb:(.*):(.*): unconstrained subtype not allowed \(need initialization\)/) {
 
 				# ********
 				# * TODO *
@@ -471,15 +475,7 @@ sub compile_routine {
 	}
 
 	if ($status == 0) {
-		print "\n-----------------------\n\nerror occurred during compilation:\n\n";
-		foreach $e (@g_error) {
-			print $e;
-		}
-		print "\n-----------------------\n\n";
-		print "\nwaiting for user interaction...\nPress ENTER when error is eliminated...";
-		# do {
-			$in = <STDIN>;
-		# } while ($in eq "OK");
+		printerror($running);
 		if ($_[0] eq "t:/GNAT/U500.gpr"){
 			copyAdsFiles;
 		}
@@ -496,6 +492,13 @@ sub checkPoint {
 	print "press ENTER to continue";
 	<STDIN>;
 }
+
+# **
+# @params
+# 	$_[0] : Package
+# 	$_[1] : Type
+# 
+# **
 
 sub listFiles {
 
@@ -519,7 +522,7 @@ sub listFiles {
 
 	if ($counter > 0) {
 		if ($counter == 1) {
-			print LOG "\n" . getPackageNameFromRegistryValue($matches[0]) . " has been automatically selected..\n\n";
+			print LOG "\n" . getPackageNameFromRegistryValue($matches[0]) . "." . $_[1] . " has been automatically selected..\n\n";
 			$result = $matches[0];
 		}
 		else {
@@ -605,6 +608,13 @@ sub addFileToList {
 	return $registry;
 }
 
+# **
+# @params
+#  	$_[0] : Package
+#	$_[1] : Type
+# 
+# **
+
 sub addFile {
 	$fileToCopy = listFiles($_[0], $_[1]);
 	if ($fileToCopy ne "nullPointerException") {
@@ -623,6 +633,16 @@ sub addSpecFile {
 		push(@packagesList, "$_[0].spec");
 		gatherSpecFiles($_[0], "spec");
 	}
+}
+
+sub getSubunits {
+	@result = ();
+	@p = $db->lookup($_[0], "Ada Package");
+	@s = $p[0]->refs("Ada Declare Stub");
+	foreach $su (@s) {
+		push(@result, $su->ent->longname());
+	}
+	return @result;
 }
 
 sub addBodyFile {
@@ -650,6 +670,10 @@ sub addBodyFile {
 			gatherSpecFiles($_[0], "body");
 			updateDatabase();
 			openDatabase();
+			@subunits = getSubunits($_[0]);
+			foreach $s (@subunits) {
+				addFile($s, "body");
+			}
 			# checkPoint($_[0]);
 		}
 	}
@@ -687,8 +711,8 @@ sub instance_maker {
 		$content =~ m/package (Manager\.)?(.*) is/;
 		$original_package_name = $2;
 
-		while ($content =~ /with (.*);\nuse (.*);/g) {
-			push @uses, "with $1;\nuse $2;\n";
+		while ($content =~ /with (.*);\n(.*\n)?use (.*);/g) {
+			push @uses, "with $1;\n$2use $3;\n";
 		}
 
 		# DATA_TYPE BEGIN
@@ -697,7 +721,7 @@ sub instance_maker {
 		# if ($content =~ m/\n( *)package (.*) is new Data_Type( *)/ and not $content =~ m/Data_Type_Gen/){
 		if ($content =~ m/\n( *)package (.*) is new Data_Type/){
 
-			while ($content =~ m/\n( *)package (.*) is new Data_Type(_Gen *)?(\n?)( *)\((.*)(\n.*)(\n.*)?;/g) {
+			while ($content =~ m/\n( *)package (.*) is new Data_Type(_Gen)?([\s|\(]*\n)?( *)(.*)(\n.*)(\n.*)?;/g) {
 				# get package name
 				$package_name = $2;
 
@@ -706,14 +730,10 @@ sub instance_maker {
 				my $new_file = lc "Manager" . $dr . $new_package_name;
 				# mkdir "Data_Type_Instances";
 				copy("templates/manager-data_type_gen.ads", "t:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
-
+				copy("templates/manager-data_type_gen.adb", "t:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
 				addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
-
+				addFileToList("t:/Stubs/", "manager$dr$new_package_name", "body", \@g_generated_sources);
 				print LOG "Manager\.$new_package_name has been created\n";
-
-				# copy("Vital.EMC_Manager.Data_Type.adb","Data_Type_Instances/" . $new_file . ".adb") or die "Copy failed: $!";
-				push(@new_files, $new_file . ".ads");
-				push(@new_files, $new_file . ".adb");
 
 				# get g_value_type and g_default_value lines
 				$g_value_type = $6;
@@ -739,7 +759,7 @@ sub instance_maker {
 				}
 
 				# editing the new ada spec file
-				open(DT, "<t:/Stubs/$new_file.ads") or die "error opening $workdir/Data_Type_Instances/$new_file.ads";
+				open(DT, "<t:/Stubs/$new_file.ads") or die "error opening t:/Stubs/$new_file.ads";
 				@g_lines = <DT>;
 				close DT;
 				open (DT, ">t:/Stubs/$new_file.ads");
@@ -771,6 +791,16 @@ sub instance_maker {
 				}
 				close DT;
 
+				# editing the new ada body file
+				open(DT, "<t:/Stubs/$new_file.adb") or die "error opening t:/Stubs/$new_file.adb";
+				@g_lines = <DT>;
+				close DT;
+				open (DT, ">t:/Stubs/$new_file.adb");
+				for (@g_lines){
+					s/INSTANCE_NAME/$new_package_name/;
+					print DT;
+				}
+				close DT;
 				push @dt_package_names, $package_name;
 
 				# editing the original file
@@ -867,18 +897,13 @@ sub instance_maker {
 						my $new_file = lc "Manager" . $dr . $new_package_name;
 						# mkdir "Port_Type_Instances";
 						copy("templates/manager-port_type_gen.ads","t:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
-
+						copy("templates/manager-port_type_gen.adb","t:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
 						addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
-
+						addFileToList("t:/Stubs/", "manager$dr$new_package_name", "body", \@g_generated_sources);
 						print LOG "Manager\.$new_package_name has been created\n";
 
-						# copy("Vital.EMC_Manager.Port_Type.adb","Port_Type_Instances/" . $new_file . ".adb") or die "Copy failed: $!";
-						push(@new_files, $new_file . ".ads");
-						push(@new_files, $new_file . ".adb");
-
 						# editing the new ada spec file
-
-						open(DT, "<t:/Stubs/$new_file.ads") or die "error opening $workdir/Port_Type_Instances/$new_file.ads";
+						open(DT, "<t:/Stubs/$new_file.ads") or die "error opening t:/Stubs/$new_file.ads";
 						@g_lines = <DT>;
 						close DT;
 						open (DT, ">t:/Stubs/$new_file.ads");
@@ -894,6 +919,15 @@ sub instance_maker {
 
 							s/G_NAME_PARAMETERS/new Types.T_PTC_Name'\("$PTC"\)/;
 							s/G_IDENTIFIER_PARAMETERS/new Types.T_Identifier'\("$Ident"\)/;
+							print DT;
+						}
+						close DT;
+						open(DT, "<t:/Stubs/$new_file.adb") or die "error opening t:/Stubs/$new_file.adb";
+						@g_lines = <DT>;
+						close DT;
+						open (DT, ">t:/Stubs/$new_file.adb");
+						foreach (@g_lines) {
+							s/INSTANCE_NAME/$new_package_name/;
 							print DT;
 						}
 						close DT;
@@ -987,14 +1021,10 @@ sub instance_maker {
 				my $new_file = lc "Manager" . $dr . $new_package_name;
 				# mkdir "Generic_Operator_Instances";
 				copy("templates/manager-generic_operator.ads","t:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
-
+				copy("templates/manager-generic_operator.adb","t:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
 				addFileToList("t:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
-
+				addFileToList("t:/Stubs/", "manager$dr$new_package_name", "body", \@g_generated_sources);
 				print LOG "Manager\.$new_package_name has been created\n";
-
-				# copy("Vital.Generic_Operator.adb","Generic_Operator_Instances/" . $new_file . ".adb") or die "Copy failed: $!";
-				push(@new_files, $new_file . ".ads");
-				push(@new_files, $new_file . ".adb");
 
 				# editing the new ada spec file
 
@@ -1020,6 +1050,16 @@ sub instance_maker {
 				}
 				close DT;
 
+				# editing the new ada body file
+				open(DT, "<t:/Stubs/$new_file.adb") or die "error opening $new_file in stubs";
+				@g_lines = <DT>;
+				close DT;
+				open (DT, ">t:/Stubs/$new_file.adb");
+				foreach (@g_lines) {
+					s/INSTANCE_NAME/$new_package_name/;
+					print DT;
+				}
+				close DT;
 				# editing the original file
 				# open(DT, "<$file") or die "error opening $file";
 				# @g_lines = <DT>;
@@ -1178,7 +1218,9 @@ sub updateDatabase {
 	}
 	# openStdError();
 	system("und -db t:/U500.udb analyze -rescan 2>$workdir/error");
-	system("und -db -quiet t:/U500.udb analyze -changed 2>$workdir/error");
+	system("und -db t:/U500.udb analyze -changed 1>$workdir/understand 2>$workdir/error");
+	@udbFile = readFile("$workdir/understand");
+	print @udbFile[$#udbFile];
 	# closeStdError();
 	# ($db, $status) = Understand::open("t:/U500.udb") or die "failed to open database";
 }
@@ -1187,6 +1229,18 @@ sub getTypeFromRegistryValue {
 	my $result;
 	$_[0] =~ m/#dir: (.*)\/\/(.*) #file: (.*?)\.(\d\.)?ad(.)/;
 	if ($4 eq "1." or $5 eq "s") {
+		$result = "spec";
+	}
+	else {
+		$result = "body";
+	}
+	return $result;
+}
+
+sub getTypeFromFileName {
+	my $result;
+	$_[0] =~ m/(.*)\.ad(.)/;
+	if ($2 eq "s") {
 		$result = "spec";
 	}
 	else {
@@ -1349,21 +1403,22 @@ sub main {
 	print "Starting compile routine for sources\n";
 	compile_routine("t:/GNAT/U500.gpr");
 
-	print "Generating instances\n";
+	print "Generating instances... ";
 	instance_maker();
+	print "Done.\n";
 
-	$mode = 0;
+	# $mode = 0;
 	
-	# copydir("t:/mods/", "t:/Stubs/", "all", 1);
+	print "Copy custom modifications to the stubs folder! Press ENTER when done"; <STDIN>;
 
 	$phase = 2;
 	print "Generating bodies for stubs\n";
-	$debug = 0;
+	# $debug = 0;
 	generateStubBodies();
 
 	$phase = 3;
 	$progress = 0;
-	$debug = 1;
+	# $debug = 0;
 	print "\n\nStarting compile routine for stubs\n";
 	compile_routine("t:/GNAT/U500Stub.gpr");
 
@@ -1384,6 +1439,7 @@ sub init {
 	$progress = 0;
 	$phase = 0;
 	$debug = 1;
+	setMode();
 
 	threads->create('showProgress');
 }
