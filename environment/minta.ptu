@@ -94,7 +94,7 @@ DEFINESTUBS
         -- Declarations of the return variables
         RETURN VARIABLE
         -- Declarations of the variables implied by stubs
-        
+        STUB VARIABLES
         -- Declarations of the tester defined variables
 
         TEST TC_Sw_SUBPROGRAM1_0001
@@ -114,7 +114,7 @@ DEFINESTUBS
                 COMMENT **          Variable_1.EC1.MIN
                 COMMENT **          Variable_2.EC2
                 COMMENT **
-                COMMENT **      Detailed runnign:
+                COMMENT **      Detailed running:
                 COMMENT **          Give_Is_Defined is called and returns with TRUE
                 COMMENT **          Some_Function is called
                 COMMENT **          Any custom text
@@ -144,7 +144,7 @@ DEFINESTUBS
                 COMMENT *******************************************************************************
                 COMMENT **  Variables implied by stubs
                 COMMENT *******************************************************************************
-                
+                VAR_STUBS
 
                 --(( Set stubs ))----------------------------------------------------------------------
                 STUBS

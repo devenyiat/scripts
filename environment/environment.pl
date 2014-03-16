@@ -73,21 +73,141 @@ sub header {
 	return $result;
 }
 
+# @param1: reference of string to be written
+# @param2: level
+sub printIndentation {
+	 my $reference = $_[0];
+	 my $tabulation = $_[1];
+
+	 $$reference = $$reference . "                -- &";
+
+	 for (my $i = 0; $i < $tabulation; $i++) {
+	 	$$reference = $$reference . "    ";
+	 }
+}
+
+# param1: reference of string to be written
+# param2: string to be added
+sub addString {
+	my $reference = $_[0];
+	my $string = $_[1];
+
+	$$reference = $$reference . $string;
+}
+
+# @param1: reference of string to be written
+# @param2: understand entity
+# @param3: level
+# @param4: current type
+sub getSubItems {
+	my $reference = $_[0];
+	my $entity = $_[1];
+
+	if ($debug == 1) {
+		print $entity->name() . "\n";
+		print $entity->kindname() . "\n";
+	}
+
+	# if we have scalar type
+	if ($entity->kindname() =~ /^(Limited )?(Private )?Type$/) {
+		addString($reference, " " . $entity->longname() . "'First");
+	}
+
+	# if we have enum type
+	if ($entity->kindname() =~ /Type Enumeration/) {
+		addString($reference, " " . $entity->longname() . "'First");
+	}
+
+	# if we have access type
+	if ($entity->kindname() =~ /Type Access/) {
+		addString($reference, " null");
+	}
+
+	# if we have array type
+	if ($entity->kindname() =~ /Type Array/) {
+		if ($_[3] ne "array") {
+			addString($reference, " (\n");
+			printIndentation($reference, $_[2]+1);
+			addString($reference, "others =>");
+		}
+		if ($entity->ref("Ada Typed") eq "") {
+			getSubItems($reference, $entity->ref("Ada Derivefrom")->ent, $_[2], "array");
+		}
+		else {
+			my $element = $entity->ref("Ada Typed")->ent;
+			# check array elemets
+			getSubItems($reference, $element, $_[2]+1, "array");
+		}
+		if ($_[3] ne "array") {
+			addString($reference, " )");
+		}
+	}
+
+	# if we have record type
+	if ($entity->kindname() =~ /Type Record/) {
+		if ($_[3] ne "record") {
+			addString($reference, " (");
+		}
+		# get record elements
+		my @components = $entity->ents("Ada Declare", "Ada Component");
+		if (@components == ()) {
+			getSubItems($reference, $entity->ref("Ada Typed")->ent, $_[2], "record");
+		}
+		else {
+			foreach my $comp (@components) {
+				# if prev line has ended with ( no need for ,
+				if (substr($$reference,-1,1) eq "(") {
+					addString($reference, "\n");
+				}
+				else {
+					addString($reference, ",\n");
+				}
+				printIndentation($reference, $_[2]+1);
+				addString($reference, $comp->name() . " =>");
+				# check record element
+				getSubItems($reference, $comp->ref("Ada Typed")->ent, $_[2]+1, "record");
+			}
+		}
+		if ($_[3] ne "record") {
+			addString($reference, " )");
+		}
+	}
+
+	# if we have abstract type
+	if ($entity->kindname() =~ /Abstract Type/) {
+		if ($_[3] ne "abstract") {
+			addString($reference, "(");
+		}
+		# check ancient type
+		if ($entity->ref("Ada Derivefrom") != "") {
+			getSubItems($reference, $entity->ref("Ada Derivefrom")->ent, $_[2], "abstract");
+		}
+
+		# get record elements
+		my @components = $entity->ents("Ada Declare", "Ada Component");
+		foreach my $comp (@components) {
+			# if prev line has ended with ( no need for ,
+			if (substr($$reference,-1,1) eq "(") {
+				addString($reference, "\n");
+			}
+			else {
+				addString($reference, ",\n");
+			}
+			printIndentation($reference, $_[2]+1);
+			addString($reference, $comp->name() . " =>");
+			# check record element
+			getSubItems($reference, $comp->ref("Ada Typed")->ent, $_[2]+1, "record");
+		}
+		# close opening (
+		if ($_[3] ne "abstract") {
+			addString($reference, " )");
+		}
+	}
+}
+
 sub sourcestotest {
 
 	$result = "";
-	# @s = $p[0]->refs("Ada Declare Stub");
-
-	# my @files_to_copy = ();
-
-	# $result = "COMMENT ****      - " . lc dottohyphen($p[0]->longname()) . ".ads";
-	# $result = $result . "\nCOMMENT ****      - " . lc dottohyphen($p[0]->longname()) . ".adb";
-
-	# foreach (@s) {
-	# 	$result = $result . "\nCOMMENT ****      - " . lc dottohyphen($package) . "-" . $_->ent()->name() . ".adb";
-	# }
-
-	# $result = $result . "\nCOMMENT ****";
 
 	foreach $file (@files_to_copy) {
 		$result = $result . "COMMENT ****      - " . $file . "\n";
@@ -195,18 +315,81 @@ sub getUniqueStubs {
 	return @result;
 }
 
+sub getStubVariableName {
+	my $stub = $_[0];
+	my $result = ();
+
+	if ($stub->kindname() =~ /(Private )?Function/) {
+		$result = "Stub_" . $stub->name();
+	}
+	else {
+		$result = "Stub_" . $stub->ref("Ada Declarein")->ent->name() . "_" . $stub->name();
+	}
+
+	return $result;
+}
+
 sub getStubs {
 
 	$result = "";
+	$reference = $_[1];
 	my @uniqueStubs = getUniqueStubs($_[0]);
 	foreach $s (@uniqueStubs) {
 		$result = $result . "\n                -- STUB " . $s->ent->longname() . " (";
-			@params = $s->ent->ents("Ada Declare", "Ada Parameter");
-			foreach $p (@params) {
-				$result = $result . "\n                -- &   " . $p->name() . " =>  ,";
+		@params = $s->ent->ents("Ada Declare", "Ada Parameter");
+		foreach $p (@params) {
+			$result = $result . "\n                -- &   " . $p->name() . " => ";
+			if ($p->type() =~ /in out /) {
+				$result = $result . "(in => , out => " . getStubVariableName($p) . "),";
+				push(@$reference, $p);
 			}
-			$result =~ s/(.*),/$1\)\n/s;
+			else {
+				if ($p->type() =~ /out /) {
+					$result = $result . "(out => " . getStubVariableName($p) . "),";
+					push(@$reference, $p);
+				}
+				else {
+					$result = $result . "(in => ),";
+				}
+			}
+		}
+		$result =~ s/(.*),/$1\)/s;
+		if ($s->ent->type() ne "") {
+			$result = $result . " Stub_" . $s->ent->name();
+			push(@$reference, $s->ent);
+		}
+		$result = $result . "\n";
 	}
+	return $result;
+}
+
+sub generateStubDeclaration {
+	$result = "";
+	$reference = $_[0];
+
+	foreach my $stub (@$reference) {
+		addString(\$result, "        # " . getStubVariableName($stub) . " : " . $stub->ref("Ada Typed")->ent->longname() . ";\n");
+	}
+
+	return $result;
+}
+
+# @param1 : reference of out parameter entities
+sub setStubVars {
+	my $reference = $_[0];
+	$result = "";
+	foreach my $param (@$reference) {
+		my $typeEnt = $param->ref("Ada Typed")->ent;
+		my $keyword = getKeyWord($typeEnt);
+		addString(\$result, "\n                -- $keyword " . getStubVariableName($param) . ",\n                -- & init =");
+		getSubItems(\$result, $typeEnt, 0, "root");
+		addString(\$result, ",\n                -- & ev ==\n");
+	}
+
+	if (@params == ()) {
+		$result = "                COMMENT None\n";
+	}
+
 	return $result;
 }
 
@@ -221,21 +404,43 @@ sub getDefineSection {
 	return $result;
 }
 
-sub getGlobals  {
+sub getKeyWord {
+	$typeEnt = $_[0];
+	my $result;
+
+	if ($typeEnt->kindname() =~ /(Limited )?(Private )?Abstract Type/ or $typeEnt->kindname() =~ /(Limited )?(Private )?Type Record/) {
+		$result = "STR";
+	}
+	else {
+		if ($typeEnt->kindname() =~ /(Limited )?(Private )?Type Array/) {
+			$result = "ARRAY";
+		}
+		else {
+			$result = "VAR";
+		}
+	}
+
+	return $result;
+}
+
+sub setGlobals  {
 	@globals = ();
 	@globals = $_[0]->ents("Ada Use", "Ada Object");
 	$result = "";
 	foreach $g (@globals) {
-		if ($g->name() =~ m/g_/) {
-			$g->type() =~ m/(in )?(out )?(.*)/;
-			$type = $3;
-			if ($type =~ /(.*)( :=)/){
-				$type = $1;
-			}
-			$result = $result . "\n                -- VAR " . $g->name() . ",\n                -- & init = " .
-			" ,\n                -- & ev = init\n";
+		if ($g->name() =~ m/^g_/i) {
+			my $typeEnt = $g->ref("Ada Typed")->ent;
+			my $keyword = getKeyWord($typeEnt);
+			
+			addString(\$result, "\n                -- $keyword " . $g->name() . ",\n                -- & init =");
+			getSubItems(\$result, $g->ref("Ada Typed")->ent, 0, "root");
+			addString(\$result, ",\n                -- & ev = init\n");
 
 		}
+	}
+
+	if ($result eq "") {
+		$result = "                COMMENT None\n";
 	}
 	return $result;
 }
@@ -264,7 +469,7 @@ sub parameters {
 	return $result;
 }
 
-sub parameters_to_test {
+sub setSignVars {
 	@params = $_[0]->ents("Ada Declare", "Ada Parameter");
 
 	$result = "";
@@ -272,17 +477,26 @@ sub parameters_to_test {
 	foreach $param (@params) {
 		$param->type() =~ m/(in )?(out )?(.*)/;
 		$mode = $1 . $2;
-		$type = $3;
-		if ($type =~ /(.*)( :=)/){
-			$type = $1;
-		}
+		$typeEnt = $param->ref("Ada Typed")->ent;
+		$keyword = getKeyWord($typeEnt);
 		if ($mode eq "in ") {
-			$result = $result . "\n                -- VAR " . $param->name() . ",\n                -- & init = " .
-			" ,\n                -- & ev ==\n";
+			# print "IN\n";
+			# print $param->ref("Ada Typed")->ent->name() . "\n";
+			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- & init =");
+			getSubItems(\$result, $typeEnt, 0, "root");
+			addString(\$result, ",\n                -- & ev ==\n");
 		}
-		else {
-			$result = $result . "\n                -- VAR " . $param->name() . ",\n                -- & init ==" .
-			",\n                -- & ev = \n";
+		if ($mode eq "out ") {
+			# print "OUT\n";
+			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- & init ==");
+			addString(\$result, ",\n                -- & ev = ");
+			getSubItems(\$result, $typeEnt, 0, "root");
+		}
+		if ($mode eq "in out ") {
+			# print "INOUT\n";
+			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- & init =");
+			getSubItems(\$result, $typeEnt, 0, "root");
+			addString(\$result, ",\n                -- & ev = \n");
 		}
 	}
 
@@ -301,10 +515,12 @@ sub returnvar {
 	return $result;
 }
 
-sub returnvar_to_test {
+sub setRetVar {
 	$result = "";
 	if ($_[0]->type() ne "") {		
-		$result = "\n                -- VAR " . $_[0]->name() . ",\n                -- & init =,\n                -- & ev =\n";
+		$result = "\n                -- VAR Ret_" . $_[0]->name() . ",\n                -- & init =";
+		getSubItems(\$result, $_[0]->ref("Ada Typed")->ent, 0, "root");
+		addString(\$result, ",\n                -- & ev =\n");
 	}
 	else {
 		$result = "                COMMENT None\n";
@@ -421,15 +637,19 @@ sub ptumaker {
 		$return = returnvar($sub);
 		$functioncall = functioncall($sub);
 		$signature = signature($sub);
-		$var_signs = parameters_to_test($sub);
-		$var_ret = returnvar_to_test($sub);
-		$var_globals = getGlobals($sub);
-		$stubs_str = getStubs($sub);
+		$var_signs = setSignVars($sub);
+		$var_ret = setRetVar($sub);
+		$var_globals = setGlobals($sub);
+		@stubVariables = ();
+		$stubs_str = getStubs($sub, \@stubVariables);
+		$stubVariablesStr = generateStubDeclaration(\@stubVariables);
+		$stubVarsSetter = setStubVars(\@stubVariables);
 		foreach $line (@act) {
 			$line =~ s/SUBPROGRAM1/$name/;
 			$line =~ s/SUBPROGRAMFULL1/$fullname/;
 			$line =~ s/        SIGNATURE VARIABLES/$parameters/;
 			$line =~ s/        RETURN VARIABLE/$return/;
+			$line =~ s/        STUB VARIABLES/$stubVariablesStr/;
 			$line =~ s/        FUNCTION CALL/$functioncall/;
 			$line =~ s/SIGNATURE/$signature/;
 			$line =~ s/MONOGRAM/$initials/;
@@ -438,8 +658,8 @@ sub ptumaker {
 			$line =~ s/                VAR_SIGNS/$var_signs/;
 			$line =~ s/                VAR_RET/$var_ret/;
 			$line =~ s/                VAR_GLOB/$var_globals/;
+			$line =~ s/                VAR_STUBS/$stubVarsSetter/;
 			$line =~ s/                STUBS/$stubs_str/;
-
 		}
 		push(@final, @act);
 	}
