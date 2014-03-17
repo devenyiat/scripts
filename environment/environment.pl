@@ -3,18 +3,22 @@ use File::Copy;
 use File::Path;
 use Understand;
 
-$workdir = getcwd();
+use strict;
 
-@temp;
-@g_exceptions = ();
-@definestubs = ();
+
+my $workdir = getcwd();
+
+our @temp;
+our @definestubs = ();
+our @g_exceptions = ();
+our $debug = 0;
 
 sub readExceptions {
 	open FH, "<$workdir/exceptions.cfg";
-	@exs = <FH>;
+	my @exs = <FH>;
 	close FH;
 
-	foreach $ex (@exs) {
+	foreach my $ex (@exs) {
 		$ex =~ m/(.*)\n/;
 		push(@g_exceptions, $1);
 	}
@@ -35,12 +39,12 @@ sub scandirs {
 		$dir = $_[0];
 	}
 	chdir($dir);
-	local @files = <*>;
-	foreach $file (@files) {
+	my @files = <*>;
+	foreach my $file (@files) {
 		chdir($dir);
 		if (-f $file) {
 			if (($file =~ /\.ads$/) or ($file =~ /\.adb$/) or ($file =~ /\.ada$/)) {	
-				$number_of_files = $number_of_files + 1;
+				# $number_of_files = $number_of_files + 1;
 				my $string = "#dir: " . $dir . "/ #file: " . $file;
 				push(@temp, $string);
 			}
@@ -51,23 +55,23 @@ sub scandirs {
 	}
 }
 
-sub dottohyphen {
+sub convertDotToHyphen {
 	my $result = $_[0];
 	$result =~ tr/./-/;
 	$result = lc $result;
 	return $result;
 }
 
-sub ptuname {
+sub getPtuName {
 	# $temp = $package;
 	# $temp =~ tr/./_/;
-	$result = "$test_type\_" . $packageu;
+	my $result = "$main::test_type\_" . $main::packageu;
 	return $result;
 }
 
 sub header {
-	@p = $db->lookup($packages[0], "Ada Package");
-	$result = $p[0]->longname();
+	my @p = $main::db->lookup($main::packages[0], "Ada Package");
+	my $result = $p[0]->longname();
 	# $result =~ m/$test_type\_(.*)/;
 	# $result = $1;
 	return $result;
@@ -205,11 +209,11 @@ sub getSubItems {
 	}
 }
 
-sub sourcestotest {
+sub getSourceFileList {
 
-	$result = "";
+	my $result = "";
 
-	foreach $file (@files_to_copy) {
+	foreach my $file (@main::files_to_copy) {
 		$result = $result . "COMMENT ****      - " . $file . "\n";
 	}
 	$result = $result . "COMMENT ****";
@@ -217,36 +221,36 @@ sub sourcestotest {
 	return $result;
 }
 
-sub withs {
-	@ withs = ();
-	$result = "";
-	foreach $act_p (@packages) {
-		@p = $db->lookup($act_p, "Ada Package");
-		@w = $p[0]->ents("Ada With Body, Ada With Spec");
+sub getWithList {
+	my @withList = ();
+	my $result = "";
+	foreach my $act_p (@main::packages) {
+		my @p = $main::db->lookup($act_p, "Ada Package");
+		my @w = $p[0]->ents("Ada With Body, Ada With Spec");
 		foreach (@w) {
-			if (not $_->longname() ~~ @withs) {
-				push(@withs, $_->longname());
+			if (not $_->longname() ~~ @withList) {
+				push(@withList, $_->longname());
 			}
 		}
 	}
-	foreach (@withs) {
+	foreach (@withList) {
 		$result = $result . "# with " . $_ . ";\n";
 	}
-	if (not $packages[0] ~~ @withs) {
-		$result = $result . "# with $packages[0];\n# with Rtrt_Test_Package;";
+	if (not $main::packages[0] ~~ @withList) {
+		$result = $result . "# with $main::packages[0];\n# with Rtrt_Test_Package;";
 	}
 	return $result;
 }
 
 sub rec_func {
-	@cfs = $_[0]->ent->refs("Ada Call");
-	foreach $cf (@cfs) {
-		$called_package = $cf->ent->parent->longname();
-		if ($called_package ~~ @packages and $called_package ne $packages[0]) {
+	my @cfs = $_[0]->ent->refs("Ada Call");
+	foreach my $cf (@cfs) {
+		my $called_package = $cf->ent->parent->longname();
+		if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
 			return 1;
 		}
 		else {
-			if ($called_package eq $packages[0]) {
+			if ($called_package eq $main::packages[0]) {
 				return rec_func($cf);
 			}
 		}
@@ -255,20 +259,20 @@ sub rec_func {
 }
 
 sub subprogram_entities {
-	@result = ();
-	@p = $db->lookup($packages[0], "Ada Package");
-	if ($test_type eq "MT"){
-		@s = $p[0]->ents("Ada Declare", "Ada Procedure, Ada Function");
+	my @result = ();
+	my @p = $main::db->lookup($main::packages[0], "Ada Package");
+	if ($main::test_type eq "MT"){
+		my @s = $p[0]->ents("Ada Declare", "Ada Procedure, Ada Function");
 		@result = @s;
 	}
 	else {
-		@s = $p[0]->ents("Ada Declare Spec", "Ada Procedure ~Local, Ada Function ~Local");
+		my @s = $p[0]->ents("Ada Declare Spec", "Ada Procedure ~Local, Ada Function ~Local");
 		MAIN_FOR: {
-			foreach $s (@s) {
-				@called_functions = $s->refs("Ada Call");
-				foreach $cf (@called_functions) {
-					$called_package = $cf->ent->parent->longname();
-					if ($called_package ~~ @packages and $called_package ne $packages[0]) {
+			foreach my $s (@s) {
+				my @called_functions = $s->refs("Ada Call");
+				foreach my $cf (@called_functions) {
+					my $called_package = $cf->ent->parent->longname();
+					if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
 						push(@result, $s);
 						last MAIN_FOR;
 					}
@@ -286,9 +290,9 @@ sub subprogram_entities {
 sub getStubs_rec {
 	my @result = ();
 	my @called_functions = $_[0]->refs("Ada Call ~Access");
-	foreach $cf (@called_functions) {
-		$called_package = $cf->ent->parent->longname();
-		if (not $called_package ~~ @packages and not $called_package ~~ @g_exceptions) {
+	foreach my $cf (@called_functions) {
+		my $called_package = $cf->ent->parent->longname();
+		if (not $called_package ~~ @main::packages and not $called_package ~~ @g_exceptions) {
 			push(@result, $cf);
 			if (not $called_package ~~ @definestubs) {
 				push(@definestubs, $called_package);
@@ -302,11 +306,11 @@ sub getStubs_rec {
 }
 
 sub getUniqueStubs {
-	@result = ();
-	@stubs = ();
+	my @result = ();
+	my @stubs = ();
 	@stubs = getStubs_rec($_[0]);
 	my @uniqueStubs = ();
-	foreach $s (@stubs) {
+	foreach my $s (@stubs) {
 		if (not $s->ent->longname() ~~ @uniqueStubs) {
 			push(@uniqueStubs, $s->ent->longname());
 			push(@result, $s);
@@ -331,13 +335,13 @@ sub getStubVariableName {
 
 sub getStubs {
 
-	$result = "";
-	$reference = $_[1];
+	my $result = "";
+	my $reference = $_[1];
 	my @uniqueStubs = getUniqueStubs($_[0]);
-	foreach $s (@uniqueStubs) {
+	foreach my $s (@uniqueStubs) {
 		$result = $result . "\n                -- STUB " . $s->ent->longname() . " (";
-		@params = $s->ent->ents("Ada Declare", "Ada Parameter");
-		foreach $p (@params) {
+		my @params = $s->ent->ents("Ada Declare", "Ada Parameter");
+		foreach my $p (@params) {
 			$result = $result . "\n                -- &   " . $p->name() . " => ";
 			if ($p->type() =~ /in out /) {
 				$result = $result . "(in => , out => " . getStubVariableName($p) . "),";
@@ -364,8 +368,8 @@ sub getStubs {
 }
 
 sub generateStubDeclaration {
-	$result = "";
-	$reference = $_[0];
+	my $result = "";
+	my $reference = $_[0];
 
 	foreach my $stub (@$reference) {
 		addString(\$result, "        # " . getStubVariableName($stub) . " : " . $stub->ref("Ada Typed")->ent->longname() . ";\n");
@@ -377,7 +381,7 @@ sub generateStubDeclaration {
 # @param1 : reference of out parameter entities
 sub setStubVars {
 	my $reference = $_[0];
-	$result = "";
+	my $result = "";
 	foreach my $param (@$reference) {
 		my $typeEnt = $param->ref("Ada Typed")->ent;
 		my $keyword = getKeyWord($typeEnt);
@@ -386,7 +390,7 @@ sub setStubVars {
 		addString(\$result, ",\n                -- & ev ==\n");
 	}
 
-	if (@params == ()) {
+	if (@$reference == ()) {
 		$result = "                COMMENT None\n";
 	}
 
@@ -395,9 +399,9 @@ sub setStubVars {
 
 sub getDefineSection {
 
-	$result = "";
+	my $result = "";
 
-	foreach $d (@definestubs) {
+	foreach my $d (@definestubs) {
 		$result = $result . "\nDEFINE STUB $d\nEND DEFINE\n";
 	}
 
@@ -405,7 +409,7 @@ sub getDefineSection {
 }
 
 sub getKeyWord {
-	$typeEnt = $_[0];
+	my $typeEnt = $_[0];
 	my $result;
 
 	if ($typeEnt->kindname() =~ /(Limited )?(Private )?Abstract Type/ or $typeEnt->kindname() =~ /(Limited )?(Private )?Type Record/) {
@@ -424,10 +428,10 @@ sub getKeyWord {
 }
 
 sub setGlobals  {
-	@globals = ();
-	@globals = $_[0]->ents("Ada Use", "Ada Object");
-	$result = "";
-	foreach $g (@globals) {
+	my @globals = ();
+	my @globals = $_[0]->ents("Ada Use", "Ada Object");
+	my $result = "";
+	foreach my $g (@globals) {
 		if ($g->name() =~ m/^g_/i) {
 			my $typeEnt = $g->ref("Ada Typed")->ent;
 			my $keyword = getKeyWord($typeEnt);
@@ -445,10 +449,10 @@ sub setGlobals  {
 	return $result;
 }
 
-sub subprograms {
-	@subs = subprogram_entities();
-	$result = "COMMENT ****";
-	foreach $s (@subs) {
+sub getSubprogramList {
+	my @subs = subprogram_entities();
+	my $result = "COMMENT ****";
+	foreach my $s (@subs) {
 		$result = $result . "\nCOMMENT ****         " . uc $s->name();
 	}
 	return $result;
@@ -456,29 +460,29 @@ sub subprograms {
 
 sub parameters {
 
-	@params = $_[0]->ents("Ada Declare", "Ada Parameter");
+	my @params = $_[0]->ents("Ada Declare", "Ada Parameter");
 
-	$result = "";
+	my $result = "";
 
-	foreach $param (@params) {
-		$param->type() =~ m/(in )?(out )?(.*)/;
-		$type = $3;
-		$result = $result . "        # " . $param->name() . " : " . $type . ";\n";
+	foreach my $param (@params) {
+		# $param->type() =~ m/(in )?(out )?(.*)/;
+		# $type = $3;
+		$result = $result . "        # " . $param->name() . " : " . $param->ref("Ada Typed")->ent->name() . ";\n";
 	}
 
 	return $result;
 }
 
 sub setSignVars {
-	@params = $_[0]->ents("Ada Declare", "Ada Parameter");
+	my @params = $_[0]->ents("Ada Declare", "Ada Parameter");
 
-	$result = "";
+	my $result = "";
 
-	foreach $param (@params) {
+	foreach my $param (@params) {
 		$param->type() =~ m/(in )?(out )?(.*)/;
-		$mode = $1 . $2;
-		$typeEnt = $param->ref("Ada Typed")->ent;
-		$keyword = getKeyWord($typeEnt);
+		my $mode = $1 . $2;
+		my $typeEnt = $param->ref("Ada Typed")->ent;
+		my $keyword = getKeyWord($typeEnt);
 		if ($mode eq "in ") {
 			# print "IN\n";
 			# print $param->ref("Ada Typed")->ent->name() . "\n";
@@ -508,7 +512,7 @@ sub setSignVars {
 }
 
 sub returnvar {
-	$result = "";
+	my $result = "";
 	if ($_[0]->type() ne "") {		
 		$result = "        # Ret_" . $_[0]->name() . " : " . $_[0]->type() . ";\n";
 	}
@@ -516,7 +520,7 @@ sub returnvar {
 }
 
 sub setRetVar {
-	$result = "";
+	my $result = "";
 	if ($_[0]->type() ne "") {		
 		$result = "\n                -- VAR Ret_" . $_[0]->name() . ",\n                -- & init =";
 		getSubItems(\$result, $_[0]->ref("Ada Typed")->ent, 0, "root");
@@ -544,18 +548,18 @@ sub setRetVar {
 # }
 
 sub functioncall {
-	$result = "        # ";
+	my $result = "        # ";
 	if ($_[0]->type() ne "") {		
 		$result = $result . "Ret_" . $_[0]->name() . " := ";
 	}
 	$result = $result . $_[0]->longname();
-	@params = $_[0]->ents("Ada Declare", "Ada Parameter");
+	my @params = $_[0]->ents("Ada Declare", "Ada Parameter");
 	if (@params != ()) {
 		$result = $result . "( ";
 	}
-	foreach $param (@params) {
-		$param->type() =~ m/(in )?(out )?(.*)/;
-		$type = $3;
+	foreach my $param (@params) {
+		# $param->type() =~ m/(in )?(out )?(.*)/;
+		# $type = $3;
 		$result = $result . $param->name() . ", ";
 	}
 	if ($result !~ s/, $/ );/) {
@@ -565,7 +569,7 @@ sub functioncall {
 }
 
 sub signature {
-	$result = $_[0]->longname() . "( " . $_[0]->parameters() . " )";
+	my $result = $_[0]->longname() . "( " . $_[0]->parameters() . " )";
 	if ($_[0]->type() ne "") {		
 		$result = $result . " return " . $_[0]->type();
 	}
@@ -574,77 +578,82 @@ sub signature {
 
 sub ptumaker {
 	open FH, "<$workdir/minta.ptu" or die "error";
-	@lines = <FH>;
+	my @lines = <FH>;
 	close FH;
 
-	@part_one = ();
-	@part_two = ();
-	@final = ();
+	my @part_one = ();
+	my @part_two = ();
+	my @final = ();
 
-	$idx = -1;
+	# divide PTU to 2 parts
+	# first ends at DEFINESTUBS line
+	my $idx = -1;
 	do {
 		$idx++;
 		push(@part_one, $lines[$idx]);
 	} while ($lines[$idx] !~ m/DEFINESTUBS/);
 	$idx = $idx + 1;
 
+	# second goes to the end
 	while ($idx <= $#lines) {
 		push(@part_two, $lines[$idx]);
 		$idx++;
 	}
 
-	$componentname = "";
-	if ($test_type eq "MT") {
-		$componentname = $packages[0];
+	# create the first part of PTU
+	my $componentName = "";
+	if ($main::test_type eq "MT") {
+		$componentName = $main::packages[0];
 	}
 	else {
-		$componentname = $itp_number;
+		$componentName = $main::itp_number;
 	}
-	$ptuname = ptuname();
-	$header = header();
-	$sourcestotest = sourcestotest();
-	$subprograms = subprograms();
-	$withs = withs();
-	foreach $line (@part_one) {
-		$line =~ s/COMMENT \*\*\*\*  PTUNAME.ptu/COMMENT \*\*\*\*  $ptuname.ptu/;
-		$line =~ s/COMMENT \*\*\*\*      - SOURCES_TO_TEST/$sourcestotest/;
-		$line =~ s/COMMENT \*\*\*\*         SUBPROGRAMS/$subprograms/;
+	my $ptuName = getPtuName();
+	my $header = header();
+	my $sourceFileList = getSourceFileList();
+	my $subprogramList = getSubprogramList();
+	my $withList = getWithList();
+
+	foreach my $line (@part_one) {
+		$line =~ s/COMMENT \*\*\*\*  PTUNAME.ptu/COMMENT \*\*\*\*  $ptuName.ptu/;
+		$line =~ s/COMMENT \*\*\*\*      - SOURCES_TO_TEST/$sourceFileList/;
+		$line =~ s/COMMENT \*\*\*\*         SUBPROGRAMS/$subprogramList/;
 		$line =~ s/HEADER PTUNAME, ,/HEADER $header, ,/;
-		$line =~ s/COMPONENTNAME/$componentname/;
-		if ($test_type eq "MT") {
+		$line =~ s/COMPONENTNAME/$componentName/;
+		if ($main::test_type eq "MT") {
 			$line =~ s/BEGIN PACKAGENAME, Attol_Test/BEGIN $header, Attol_Test/;
 		}
 		else {
 			$line =~ s/BEGIN PACKAGENAME, Attol_Test/BEGIN/;
 		}
-		$line =~ s/WITH PART/$withs/;
-		$line =~ s/MONOGRAM/$initials/;
-		$line =~ s/PRODDATE/$date/;
-		$line =~ s/RELEASE/$release/;
-		$line =~ s/VERSION/$environmentversion/;
+		$line =~ s/WITH PART/$withList/;
+		$line =~ s/MONOGRAM/$main::initials/;
+		$line =~ s/PRODDATE/$main::date/;
+		$line =~ s/RELEASE/$main::release/;
+		$line =~ s/VERSION/$main::environmentversion/;
 	}
 
 	push(@final, @part_one);
 
 	# foreach $sub ($p[0]->ents("Ada Declare", "Ada Procedure ~Local, Ada Function ~Local")) {
-	@p = $db->lookup($packages[0], "Ada Package");
+	my @p = $main::db->lookup($main::packages[0], "Ada Package");
 	# foreach $sub ($p[0]->ents("Ada Declare", "Ada Procedure, Ada Function")) {
-	foreach $sub (subprogram_entities()) {
-		@act = @part_two;
-		$name = uc $sub->name();
-		$fullname = $sub->longname();
-		$parameters = parameters($sub);
-		$return = returnvar($sub);
-		$functioncall = functioncall($sub);
-		$signature = signature($sub);
-		$var_signs = setSignVars($sub);
-		$var_ret = setRetVar($sub);
-		$var_globals = setGlobals($sub);
-		@stubVariables = ();
-		$stubs_str = getStubs($sub, \@stubVariables);
-		$stubVariablesStr = generateStubDeclaration(\@stubVariables);
-		$stubVarsSetter = setStubVars(\@stubVariables);
-		foreach $line (@act) {
+	foreach my $sub (subprogram_entities()) {
+		my @act = @part_two;
+		my $name = uc $sub->name();
+		my $fullname = $sub->longname();
+		my $parameters = parameters($sub);
+		my $return = returnvar($sub);
+		my $functioncall = functioncall($sub);
+		my $signature = signature($sub);
+		my $var_signs = setSignVars($sub);
+		my $var_ret = setRetVar($sub);
+		my $var_globals = setGlobals($sub);
+		my @stubVariables = ();
+		my $stubs_str = getStubs($sub, \@stubVariables);
+		my $stubVariablesStr = generateStubDeclaration(\@stubVariables);
+		my $stubVarsSetter = setStubVars(\@stubVariables);
+		foreach my $line (@act) {
 			$line =~ s/SUBPROGRAM1/$name/;
 			$line =~ s/SUBPROGRAMFULL1/$fullname/;
 			$line =~ s/        SIGNATURE VARIABLES/$parameters/;
@@ -652,9 +661,9 @@ sub ptumaker {
 			$line =~ s/        STUB VARIABLES/$stubVariablesStr/;
 			$line =~ s/        FUNCTION CALL/$functioncall/;
 			$line =~ s/SIGNATURE/$signature/;
-			$line =~ s/MONOGRAM/$initials/;
-			$line =~ s/PRODDATE/$date/;
-			$line =~ s/RELEASE/$release/;
+			$line =~ s/MONOGRAM/$main::initials/;
+			$line =~ s/PRODDATE/$main::date/;
+			$line =~ s/RELEASE/$main::release/;
 			$line =~ s/                VAR_SIGNS/$var_signs/;
 			$line =~ s/                VAR_RET/$var_ret/;
 			$line =~ s/                VAR_GLOB/$var_globals/;
@@ -664,32 +673,32 @@ sub ptumaker {
 		push(@final, @act);
 	}
 
-	$stubdefs = getDefineSection();
+	my $stubdefs = getDefineSection();
 	foreach (@final) {
 		if (s/DEFINESTUBS/$stubdefs/) {
 			last;
 		}
 	}
 
-	open FH, ">t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu.ptu";
+	open FH, ">t:/Test_Environments/$main::test_type\_$main::packageu/$main::test_type\_$main::packageu.ptu";
 	print FH @final;
 	close FH;
 
 }
 
 sub rtpmaker {
-	$id = 434727470;
+	my $id = 434727470;
 
 	open FH, "<$workdir/minta.rtp" or die "error";
-	@lines = <FH>;
+	my @lines = <FH>;
 	close FH;
 
-	@part_one = ();
-	@part_two = ();
-	@part_three = ();
-	@final = ();
+	my @part_one = ();
+	my @part_two = ();
+	my @part_three = ();
+	my @final = ();
 
-	$idx = -1;
+	my $idx = -1;
 	do {
 		$idx++;
 		push(@part_one, $lines[$idx]);
@@ -703,19 +712,19 @@ sub rtpmaker {
 		push(@part_three, $lines[$idx]);
 	} while ($idx < $#lines);
 
-	$name = ptuname();
-	foreach $line (@part_one) {
+	my $name = getPtuName();
+	foreach my $line (@part_one) {
 		$line =~ s/NAME/$name/;
-		$line =~ s/LOCATION/t:\\Test_Environments\\$test_type\_$packageu\\/;
+		$line =~ s/LOCATION/t:\\Test_Environments\\$main::test_type\_$main::packageu\\/;
 	}
 	push(@final, @part_one);
 
-	print @files_to_copy;
+	print @main::files_to_copy;
 
-	foreach $file (@files_to_copy) {
+	foreach my $file (@main::files_to_copy) {
 		print $file;
-		@act = @part_two;
-		foreach $line (@act) {
+		my @act = @part_two;
+		foreach my $line (@act) {
 			$line =~ s/SOURCE/$file/;
 			$line =~ s/QUID/$id/;
 			if ($file =~ m/ads/) {
@@ -730,12 +739,12 @@ sub rtpmaker {
 		push(@final, @act);
 	}
 
-	foreach $line (@part_three) {
+	foreach my $line (@part_three) {
 		$line =~ s/NAME/$name/;
 	}
 	push(@final, @part_three);
 
-	open FH, ">t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu.rtp";
+	open FH, ">t:/Test_Environments/$main::test_type\_$main::packageu/$main::test_type\_$main::packageu.rtp";
 	print FH @final;
 	close FH;
 	
@@ -743,18 +752,18 @@ sub rtpmaker {
 
 sub modify_source {
 
-	$package = $p[0]->longname();
+	my $package = $main::packages[0]->longname();
 
-	open FH, "<t:/Test_Environments/$test_type\_$packageu/Source/" . dottohyphen($package) . ".ads" or die "error";
-	@lines = <FH>;
+	open FH, "<t:/Test_Environments/$main::test_type\_$main::packageu/Source/" . convertDotToHyphen($package) . ".ads" or die "error";
+	my @lines = <FH>;
 	close FH;
 
-	$content = "";
-	foreach $l (@lines) {
+	my $content = "";
+	foreach my $l (@lines) {
 		$content = $content . $l;
 	}
 
-	open FH, ">t:/Test_Environments/$test_type\_$packageu/Source/" . dottohyphen($package) . ".ads" or die "error";
+	open FH, ">t:/Test_Environments/$main::test_type\_$main::packageu/Source/" . convertDotToHyphen($package) . ".ads" or die "error";
 
 	# if ($content =~ m/g_CTD_Reference/) {
 	# 	$content =~ s/end $package/--HOST_TEST_BEGIN\n   procedure Elab;\n   procedure Attol_Test;\n--HOST_TEST_END\n\nend $package/i;
@@ -768,16 +777,16 @@ sub modify_source {
 
 	close FH;
 
-	open FH, "<t:/Test_Environments/$test_type\_$packageu/Source/" . dottohyphen($package) . ".adb" or die "error";
+	open FH, "<t:/Test_Environments/$main::test_type\_$main::packageu/Source/" . convertDotToHyphen($package) . ".adb" or die "error";
 	@lines = <FH>;
 	close FH;
 
-	$content = "";
-	foreach $l (@lines) {
+	my $content = "";
+	foreach my $l (@lines) {
 		$content = $content . $l;
 	}
 
-	open FH, ">t:/Test_Environments/$test_type\_$packageu/Source/" . dottohyphen($package) . ".adb" or die "error";
+	open FH, ">t:/Test_Environments/$main::test_type\_$main::packageu/Source/" . convertDotToHyphen($package) . ".adb" or die "error";
 
 	# if ($content =~ m/g_CTD_Reference/) {
 	# 	$content =~ s/\nbegin/\n--HOST_TEST_BEGIN\nprocedure Elab is\nbegin\n--HOST_TEST_END/s;
@@ -794,16 +803,17 @@ sub modify_source {
 }
 
 open FH, "<environment.cfg";
-@lines = <FH>;
+my @lines = <FH>;
 close FH;
 
 $lines[0] =~ m/TEST_TYPE:\s*(.*)/;
-$test_type = $1;
+our $test_type = $1;
 $lines[1] =~ m/ITP:\s*(.*)/;
-$itp_number = $1;
+our $itp_number = $1;
 
-$temporary_line = $lines[2];
-$number_of_packages = 0;
+my $temporary_line = $lines[2];
+my $number_of_packages = 0;
+our @packages;
 while ($temporary_line =~ m/MODULES_TO_TEST:\s*(.*?),(.*)/) {
 	@packages[$number_of_packages] = $1;
 	$number_of_packages++;
@@ -813,7 +823,7 @@ $temporary_line =~ m/MODULES_TO_TEST:\s*(.*)/;
 @packages[$number_of_packages] = $1;
 $number_of_packages++;
 
-$packageu = "";
+our $packageu = "";
 if ($test_type eq "MT") {
 	$packageu = $packages[0];
 	$packageu =~ tr/./_/;
@@ -823,13 +833,13 @@ else {
 }
 
 $lines[3] =~ m/INITIALS:\s*(.*)/;
-$initials = $1;
+our $initials = $1;
 $lines[4] =~ m/DATE:\s(.*)/;
-$date = $1;
+our $date = $1;
 $lines[5] =~ m/RELEASE:\s(.*)/;
-$release = $1;
+our $release = $1;
 $lines[6] =~ m/ENVIRONMENT:\s(.*)/;
-$environmentversion = $1;
+our $environmentversion = $1;
 
 mkpath("t:/Test_Environments/$test_type\_$packageu/Source/");
 mkpath("t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu/");
@@ -837,34 +847,34 @@ mkpath("t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu/");
 system("und -db t:/U500.udb analyze -rescan");
 system("und -db t:/U500.udb analyze -changed");
 
-$db = Understand::open("T:/U500.udb");
+our $db = Understand::open("T:/U500.udb");
 
-@files_to_copy = ();
+our @files_to_copy = ();
 
-foreach $package (@packages) {
+foreach my $package (@packages) {
 
 	print $package;
 
-	@p = $db->lookup($package, "Ada Package");
-	@s = $p[0]->refs("Ada Declare Stub");
+	my @p = $db->lookup($package, "Ada Package");
+	my @s = $p[0]->refs("Ada Declare Stub");
 
-	push(@files_to_copy, lc dottohyphen($p[0]->longname()) . ".ads");
-	push(@files_to_copy, lc dottohyphen($p[0]->longname()) . ".adb");
+	push(@files_to_copy, lc convertDotToHyphen($p[0]->longname()) . ".ads");
+	push(@files_to_copy, lc convertDotToHyphen($p[0]->longname()) . ".adb");
 
 	foreach (@s) {
-		$temp = lc dottohyphen($package) . "-" . $_->ent()->name() . ".adb";
+		my $temp = lc convertDotToHyphen($package) . "-" . $_->ent()->name() . ".adb";
 		push(@files_to_copy, $temp);
 	}
 
 }
 
-%filesloc;
+my %filesloc;
 
 readExceptions();
 
 scan("t:/Source/");
-foreach $f (@files_to_copy) {
-	$idx = 0;
+foreach my $f (@files_to_copy) {
+	my $idx = 0;
 	while ($temp[$idx] !~ m/$f/ and $idx <= $#temp) {
 		$idx++;
 	}
@@ -872,7 +882,7 @@ foreach $f (@files_to_copy) {
 	$temp[$idx] =~ m/#dir: (.*)\/\/(.*) #file: (.*)/;
 	print "$1/$2$f". "\n";
 	copy("$1/$2$f", "t:/Test_Environments/$test_type\_$packageu/Source/$f");
-	$loc = "$1/$2";
+	my $loc = "$1/$2";
 	$loc =~ tr/\//\\/;
 	$filesloc{$f} = $loc;
 }
@@ -885,12 +895,12 @@ close FH;
 
 open FH, ">t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu.alk";
 
-@mod = ();
-foreach $l (@lines) {
-	foreach $f (@files_to_copy) {
+my @mod = ();
+foreach my $l (@lines) {
+	foreach my $f (@files_to_copy) {
 		if ($l =~ m/$f/) {
-			$temp = $l;
-			$loc = $filesloc{$f};
+			my $temp = $l;
+			my $loc = $filesloc{$f};
 			$temp =~ s/t:\\Stubs\\/t:\\Test_Environments\\$test_type\_$packageu\\Source\\/;
 			push(@mod, $temp);
 			$l =~ s/(.*)/--$1/;
