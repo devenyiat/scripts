@@ -8,10 +8,10 @@ use strict;
 
 my $workdir = getcwd();
 
-our @temp;
+# our @temp;
 our @definestubs = ();
 our @g_exceptions = ();
-our $debug = 0;
+our $debug = 1;
 
 sub readExceptions {
 	open FH, "<$workdir/exceptions.cfg";
@@ -25,18 +25,20 @@ sub readExceptions {
 }
 
 sub scan {
-	@temp = ();
-	scandirs($_[0]);
+	my @temp = ();
+	scandirs(\@temp, $_[0]);
 	chdir($workdir);
+	return @temp;
 }
 
 sub scandirs {
 	my $dir;
-	if ($_[1] =~ /(\w+)/){
-		$dir = $_[0] . "/" . $_[1];
+	my $reference = $_[0];
+	if ($_[2] =~ /(\w+)/){
+		$dir = $_[1] . "/" . $_[2];
 	}
 	else {
-		$dir = $_[0];
+		$dir = $_[1];
 	}
 	chdir($dir);
 	my @files = <*>;
@@ -46,11 +48,11 @@ sub scandirs {
 			if (($file =~ /\.ads$/) or ($file =~ /\.adb$/) or ($file =~ /\.ada$/)) {	
 				# $number_of_files = $number_of_files + 1;
 				my $string = "#dir: " . $dir . "/ #file: " . $file;
-				push(@temp, $string);
+				push(@$reference, $string);
 			}
 		}
 		if (-d $file) {
-			scandirs($dir, $file);
+			scandirs($reference, $dir, $file);
 		}
 	}
 }
@@ -129,33 +131,38 @@ sub getSubItems {
 
 	# if we have array type
 	if ($entity->kindname() =~ /Type Array/) {
-		if ($_[3] ne "array") {
+		if ($_[3] != $_[2]) {
 			addString($reference, " (\n");
 			printIndentation($reference, $_[2]+1);
 			addString($reference, "others =>");
 		}
-		if ($entity->ref("Ada Typed") eq "") {
-			getSubItems($reference, $entity->ref("Ada Derivefrom")->ent, $_[2], "array");
+		if ($entity->refs("Ada Typed") == ()) {
+			getSubItems($reference, $entity->ref("Ada Derivefrom")->ent, $_[2], $_[2]);
 		}
 		else {
 			my $element = $entity->ref("Ada Typed")->ent;
 			# check array elemets
-			getSubItems($reference, $element, $_[2]+1, "array");
+			getSubItems($reference, $element, $_[2]+1, $_[2]);
 		}
-		if ($_[3] ne "array") {
+		if ($_[3] != $_[2]) {
 			addString($reference, " )");
 		}
 	}
 
 	# if we have record type
 	if ($entity->kindname() =~ /Type Record/) {
-		if ($_[3] ne "record") {
+		if ($_[3] != $_[2]) {
 			addString($reference, " (");
 		}
 		# get record elements
 		my @components = $entity->ents("Ada Declare", "Ada Component");
 		if (@components == ()) {
-			getSubItems($reference, $entity->ref("Ada Typed")->ent, $_[2], "record");
+			if ($entity->ref("Ada Derivefrom") ne ""){
+				getSubItems($reference, $entity->ref("Ada Derivefrom")->ent, $_[2], $_[2]);
+			}
+			else {
+				getSubItems($reference, $entity->ref("Ada Typed")->ent, $_[2], $_[2]);
+			}
 		}
 		else {
 			foreach my $comp (@components) {
@@ -169,22 +176,22 @@ sub getSubItems {
 				printIndentation($reference, $_[2]+1);
 				addString($reference, $comp->name() . " =>");
 				# check record element
-				getSubItems($reference, $comp->ref("Ada Typed")->ent, $_[2]+1, "record");
+				getSubItems($reference, $comp->ref("Ada Typed")->ent, $_[2]+1, $_[2]);
 			}
 		}
-		if ($_[3] ne "record") {
+		if ($_[3] != $_[2]) {
 			addString($reference, " )");
 		}
 	}
 
 	# if we have abstract type
-	if ($entity->kindname() =~ /Abstract Type/) {
-		if ($_[3] ne "abstract") {
-			addString($reference, "(");
+	if ($entity->kindname() =~ /Abstract Type/ or $entity->kindname() =~ /Tagged Type/) {
+		if ($_[3] != $_[2]) {
+			addString($reference, " (");
 		}
 		# check ancient type
 		if ($entity->ref("Ada Derivefrom") != "") {
-			getSubItems($reference, $entity->ref("Ada Derivefrom")->ent, $_[2], "abstract");
+			getSubItems($reference, $entity->ref("Ada Derivefrom")->ent, $_[2], $_[2]);
 		}
 
 		# get record elements
@@ -200,10 +207,10 @@ sub getSubItems {
 			printIndentation($reference, $_[2]+1);
 			addString($reference, $comp->name() . " =>");
 			# check record element
-			getSubItems($reference, $comp->ref("Ada Typed")->ent, $_[2]+1, "record");
+			getSubItems($reference, $comp->ref("Ada Typed")->ent, $_[2]+1, $_[2]);
 		}
 		# close opening (
-		if ($_[3] ne "abstract") {
+		if ($_[3] != $_[2]) {
 			addString($reference, " )");
 		}
 	}
@@ -242,6 +249,8 @@ sub getWithList {
 	return $result;
 }
 
+# return 1 if there is call to server package
+
 sub rec_func {
 	my @cfs = $_[0]->ent->refs("Ada Call");
 	foreach my $cf (@cfs) {
@@ -257,6 +266,9 @@ sub rec_func {
 	}
 	return 0;
 }
+
+# case of MT: list all the subprograms
+# case of IT: list interface subprograms which contains calls to server packages
 
 sub subprogram_entities {
 	my @result = ();
@@ -274,11 +286,13 @@ sub subprogram_entities {
 					my $called_package = $cf->ent->parent->longname();
 					if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
 						push(@result, $s);
-						last MAIN_FOR;
+						last;
 					}
-					if (rec_func($cf) == 1) {
-						push(@result, $s);
-						last MAIN_FOR;
+					if ($called_package eq $main::packages[0]) {
+						if (rec_func($cf) == 1) {
+							push(@result, $s);
+							last;
+						}
 					}
 				}
 			}
@@ -299,7 +313,10 @@ sub getStubs_rec {
 			}
 		}
 		else {
-			push(@result, getStubs_rec($cf->ent));
+			if (not $cf->ent->longname() ~~ @getStubs::seensubs) {
+				push(@getStubs::seensubs, $cf->ent->longname());
+				push(@result, getStubs_rec($cf->ent));
+			}
 		}
 	}
 	return @result;
@@ -334,6 +351,8 @@ sub getStubVariableName {
 }
 
 sub getStubs {
+
+	our @seensubs = ();
 
 	my $result = "";
 	my $reference = $_[1];
@@ -385,9 +404,9 @@ sub setStubVars {
 	foreach my $param (@$reference) {
 		my $typeEnt = $param->ref("Ada Typed")->ent;
 		my $keyword = getKeyWord($typeEnt);
-		addString(\$result, "\n                -- $keyword " . getStubVariableName($param) . ",\n                -- & init =");
-		getSubItems(\$result, $typeEnt, 0, "root");
-		addString(\$result, ",\n                -- & ev ==\n");
+		addString(\$result, "\n                -- $keyword " . getStubVariableName($param) . ",\n                -- &   init =");
+		getSubItems(\$result, $typeEnt, 1, 0);
+		addString(\$result, ",\n                -- &   ev ==\n");
 	}
 
 	if (@$reference == ()) {
@@ -436,13 +455,12 @@ sub setGlobals  {
 			my $typeEnt = $g->ref("Ada Typed")->ent;
 			my $keyword = getKeyWord($typeEnt);
 			
-			addString(\$result, "\n                -- $keyword " . $g->name() . ",\n                -- & init =");
-			getSubItems(\$result, $g->ref("Ada Typed")->ent, 0, "root");
-			addString(\$result, ",\n                -- & ev = init\n");
+			addString(\$result, "\n                -- $keyword " . $g->name() . ",\n                -- &   init =");
+			getSubItems(\$result, $g->ref("Ada Typed")->ent, 1, 0);
+			addString(\$result, ",\n                -- &   ev = init\n");
 
 		}
 	}
-
 	if ($result eq "") {
 		$result = "                COMMENT None\n";
 	}
@@ -467,7 +485,7 @@ sub parameters {
 	foreach my $param (@params) {
 		# $param->type() =~ m/(in )?(out )?(.*)/;
 		# $type = $3;
-		$result = $result . "        # " . $param->name() . " : " . $param->ref("Ada Typed")->ent->name() . ";\n";
+		$result = $result . "        # " . $param->name() . " : " . $param->ref("Ada Typed")->ent->longname() . ";\n";
 	}
 
 	return $result;
@@ -486,21 +504,21 @@ sub setSignVars {
 		if ($mode eq "in ") {
 			# print "IN\n";
 			# print $param->ref("Ada Typed")->ent->name() . "\n";
-			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- & init =");
-			getSubItems(\$result, $typeEnt, 0, "root");
-			addString(\$result, ",\n                -- & ev ==\n");
+			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- &   init =");
+			getSubItems(\$result, $typeEnt, 1, 0);
+			addString(\$result, ",\n                -- &   ev ==\n");
 		}
 		if ($mode eq "out ") {
 			# print "OUT\n";
-			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- & init ==");
-			addString(\$result, ",\n                -- & ev = ");
-			getSubItems(\$result, $typeEnt, 0, "root");
+			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- &   init ==");
+			addString(\$result, ",\n                -- &   ev = ");
+			getSubItems(\$result, $typeEnt, 1, 0);
 		}
 		if ($mode eq "in out ") {
 			# print "INOUT\n";
-			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- & init =");
-			getSubItems(\$result, $typeEnt, 0, "root");
-			addString(\$result, ",\n                -- & ev = \n");
+			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- &   init =");
+			getSubItems(\$result, $typeEnt, 1, 0);
+			addString(\$result, ",\n                -- &   ev = \n");
 		}
 	}
 
@@ -514,17 +532,18 @@ sub setSignVars {
 sub returnvar {
 	my $result = "";
 	if ($_[0]->type() ne "") {		
-		$result = "        # Ret_" . $_[0]->name() . " : " . $_[0]->type() . ";\n";
+		$result = "        # Ret_" . $_[0]->name() . " : " . $_[0]->ref("Ada Typed")->ent->longname() . ";\n";
 	}
 	return $result;
 }
 
 sub setRetVar {
 	my $result = "";
+	my $keyword = getKeyWord($_[0]);
 	if ($_[0]->type() ne "") {		
-		$result = "\n                -- VAR Ret_" . $_[0]->name() . ",\n                -- & init =";
-		getSubItems(\$result, $_[0]->ref("Ada Typed")->ent, 0, "root");
-		addString(\$result, ",\n                -- & ev =\n");
+		$result = "\n                -- $keyword Ret_" . $_[0]->name() . ",\n                -- &    init ==,\n                -- &    ev   =";
+		getSubItems(\$result, $_[0]->ref("Ada Typed")->ent, 1, 0);
+		# addString(\$result, ",\n                -- &   ev =");
 	}
 	else {
 		$result = "                COMMENT None\n";
@@ -719,10 +738,9 @@ sub rtpmaker {
 	}
 	push(@final, @part_one);
 
-	print @main::files_to_copy;
-
+	print "Adding files to RTRT project:\n";
 	foreach my $file (@main::files_to_copy) {
-		print $file;
+		print "\t$file\n";
 		my @act = @part_two;
 		foreach my $line (@act) {
 			$line =~ s/SOURCE/$file/;
@@ -752,7 +770,7 @@ sub rtpmaker {
 
 sub modify_source {
 
-	my $package = $main::packages[0]->longname();
+	my $package = $main::packages[0];
 
 	open FH, "<t:/Test_Environments/$main::test_type\_$main::packageu/Source/" . convertDotToHyphen($package) . ".ads" or die "error";
 	my @lines = <FH>;
@@ -769,7 +787,13 @@ sub modify_source {
 	# 	$content =~ s/end $package/--HOST_TEST_BEGIN\n   procedure Elab;\n   procedure Attol_Test;\n--HOST_TEST_END\n\nend $package/i;
 	# }
 	# else {
-		$content =~ s/end $package/--HOST_TEST_BEGIN\n   procedure Attol_Test;\n--HOST_TEST_END\n\nend $package/i;
+	if ($content =~ s/end $package/--HOST_TEST_BEGIN\n   procedure Attol_Test;\n--HOST_TEST_END\n\nend $package/i) {
+		print "Attol_Test inserted into spec\n";
+	}
+	else {
+		print "something went wrong at instering Attol_Test into spec\n";
+	}
+		
 	# }
 
 
@@ -793,7 +817,12 @@ sub modify_source {
 	# 	$content =~ s/end $package/\n--HOST_TEST_BEGIN\nend Elab;\n\n\n   procedure Attol_Test is separate;\n--HOST_TEST_END\n\nend $package/i;
 	# }
 	# else {
-		$content =~ s/end $package/\n--HOST_TEST_BEGIN\n   procedure Attol_Test is separate;\n--HOST_TEST_END\n\nend $package/i;
+	if ($content =~ s/end $package/\n--HOST_TEST_BEGIN\n   procedure Attol_Test is separate;\n--HOST_TEST_END\n\nend $package/i) {
+		print "Attol_Test inserted into body\n";
+	}
+	else {
+		print "something went wrong at instering Attol_Test into body\n";
+	}
 	# }
 
 	print FH $content;
@@ -815,12 +844,12 @@ my $temporary_line = $lines[2];
 my $number_of_packages = 0;
 our @packages;
 while ($temporary_line =~ m/MODULES_TO_TEST:\s*(.*?),(.*)/) {
-	@packages[$number_of_packages] = $1;
+	$packages[$number_of_packages] = $1;
 	$number_of_packages++;
 	$temporary_line = "MODULES_TO_TEST:$2";
 }
 $temporary_line =~ m/MODULES_TO_TEST:\s*(.*)/;
-@packages[$number_of_packages] = $1;
+$packages[$number_of_packages] = $1;
 $number_of_packages++;
 
 our $packageu = "";
@@ -851,10 +880,10 @@ our $db = Understand::open("T:/U500.udb");
 
 our @files_to_copy = ();
 
+print "Checking dependencies for package:\n";
 foreach my $package (@packages) {
 
-	print $package;
-
+	print "\t$package\n";;
 	my @p = $db->lookup($package, "Ada Package");
 	my @s = $p[0]->refs("Ada Declare Stub");
 
@@ -872,14 +901,15 @@ my %filesloc;
 
 readExceptions();
 
-scan("t:/Source/");
+our @sources = (scan("t:/Source/"), scan("t:/Additional_Files/"));
+
 foreach my $f (@files_to_copy) {
 	my $idx = 0;
-	while ($temp[$idx] !~ m/$f/ and $idx <= $#temp) {
+	while ($sources[$idx] !~ m/$f/ and $idx <= $#sources) {
 		$idx++;
 	}
-	print $temp[$idx]. "\n";
-	$temp[$idx] =~ m/#dir: (.*)\/\/(.*) #file: (.*)/;
+	print $sources[$idx]. "\n";
+	$sources[$idx] =~ m/#dir: (.*)\/\/(.*) #file: (.*)/;
 	print "$1/$2$f". "\n";
 	copy("$1/$2$f", "t:/Test_Environments/$test_type\_$packageu/Source/$f");
 	my $loc = "$1/$2";
@@ -895,15 +925,18 @@ close FH;
 
 open FH, ">t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu.alk";
 
+print "Modifying alk file\n";
+
 my @mod = ();
 foreach my $l (@lines) {
-	foreach my $f (@files_to_copy) {
-		if ($l =~ m/$f/) {
+	foreach my $file (@files_to_copy) {
+		if ($l =~ m/$file/) {
 			my $temp = $l;
-			my $loc = $filesloc{$f};
+			my $loc = $filesloc{$file};
 			$temp =~ s/t:\\Stubs\\/t:\\Test_Environments\\$test_type\_$packageu\\Source\\/;
+			print "\t$l\n";
 			push(@mod, $temp);
-			$l =~ s/(.*)/--$1/;
+			$l =~ s/(.*)\n/\n/;
 			last;
 		}
 	}
