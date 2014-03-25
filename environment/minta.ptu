@@ -69,20 +69,11 @@ DEFINESTUBS
     COMMENT **
     COMMENT **  Variables:
     COMMENT **
-    COMMENT **      parameter Param_Name : in Type_Package.Type
-    COMMENT **      global Global_Package.Global_Name : Type_Packge.Type
-    COMMENT **      return Return_Name : Type_Package.Type
-    COMMENT **      stub Variable_Name : Type_Package.Type
+    COMMENT **      N/A
     COMMENT **    
     COMMENT **  Equivalence classes:
     COMMENT **
-    COMMENT **      Variable_1: 
-    COMMENT **          EC1 : [0..10] : VALID [000x | 000y | 000z] -- explanation: [MIN | MID | MAX] TO BE DELETED
-    COMMENT **          EC2 : [11..100] : INVALID
-    COMMENT **          ...
-    COMMENT **      Variable_2: 
-    COMMENT **          EC1 : null : INVALID
-    COMMENT **          EC2 : not null : VALID [000x]
+    COMMENT **      N/A
     COMMENT **    
     COMMENT *******************************************************************************
 
@@ -111,8 +102,7 @@ DEFINESTUBS
                 COMMENT **
                 COMMENT **  Description:
                 COMMENT **      Covered equivalence classes:
-                COMMENT **          Variable_1.EC1.MIN
-                COMMENT **          Variable_2.EC2
+                COMMENT **          N/A
                 COMMENT **
                 COMMENT **      Detailed running:
                 COMMENT **          Give_Is_Defined is called and returns with TRUE
@@ -145,7 +135,6 @@ DEFINESTUBS
                 COMMENT **  Variables implied by stubs
                 COMMENT *******************************************************************************
                 VAR_STUBS
-
                 --(( Set stubs ))----------------------------------------------------------------------
                 STUBS
                 --(( Exception ))----------------------------------------------------------------------

@@ -46,7 +46,7 @@
             <configuration_list>
               <configuration>
                 <name>Ada U500_GNAT_WinNT</name>
-                <cflags>-O0 -gnatE -gnato -gnatv -gnatws -gnatd7 -gnat95</cflags>
+                <cflags>-O0 -gnatE -gnato -gnatv -gnatws -gnatd7 -gnat95 -g</cflags>
               </configuration>
             </configuration_list>
           </node>

@@ -18,6 +18,7 @@ sub readExceptions {
 	my @exs = <FH>;
 	close FH;
 
+
 	foreach my $ex (@exs) {
 		$ex =~ m/(.*)\n/;
 		push(@g_exceptions, $1);
@@ -543,7 +544,7 @@ sub setRetVar {
 	if ($_[0]->type() ne "") {		
 		$result = "\n                -- $keyword Ret_" . $_[0]->name() . ",\n                -- &    init ==,\n                -- &    ev   =";
 		getSubItems(\$result, $_[0]->ref("Ada Typed")->ent, 1, 0);
-		# addString(\$result, ",\n                -- &   ev =");
+		addString(\$result, "\n");
 	}
 	else {
 		$result = "                COMMENT None\n";
