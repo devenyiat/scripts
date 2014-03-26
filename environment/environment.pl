@@ -11,7 +11,7 @@ my $workdir = getcwd();
 # our @temp;
 our @definestubs = ();
 our @g_exceptions = ();
-our $debug = 1;
+our $debug = 0;
 
 sub readExceptions {
 	open FH, "<$workdir/exceptions.cfg";
@@ -158,7 +158,7 @@ sub getSubItems {
 		# get record elements
 		my @components = $entity->ents("Ada Declare", "Ada Component");
 		if (@components == ()) {
-			if ($entity->ref("Ada Derivefrom") ne ""){
+			if ($entity->refs("Ada Derivefrom") != ()){
 				getSubItems($reference, $entity->ref("Ada Derivefrom")->ent, $_[2], $_[2]);
 			}
 			else {
@@ -191,7 +191,7 @@ sub getSubItems {
 			addString($reference, " (");
 		}
 		# check ancient type
-		if ($entity->ref("Ada Derivefrom") != "") {
+		if ($entity->refs("Ada Derivefrom") != ()) {
 			getSubItems($reference, $entity->ref("Ada Derivefrom")->ent, $_[2], $_[2]);
 		}
 
@@ -253,19 +253,22 @@ sub getWithList {
 # return 1 if there is call to server package
 
 sub rec_func {
+	my $result = 0;
 	my @cfs = $_[0]->ent->refs("Ada Call");
+	print "\t\t" . $_[0]->ent->longname() . "\n";
 	foreach my $cf (@cfs) {
+		print "\t\t\t" . $cf->ent->longname() . "\n";
 		my $called_package = $cf->ent->parent->longname();
 		if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
 			return 1;
 		}
 		else {
 			if ($called_package eq $main::packages[0]) {
-				return rec_func($cf);
+				$result = rec_func($cf);
 			}
 		}
 	}
-	return 0;
+	return $result;
 }
 
 # case of MT: list all the subprograms
@@ -280,20 +283,20 @@ sub subprogram_entities {
 	}
 	else {
 		my @s = $p[0]->ents("Ada Declare Spec", "Ada Procedure ~Local, Ada Function ~Local");
-		MAIN_FOR: {
-			foreach my $s (@s) {
-				my @called_functions = $s->refs("Ada Call");
-				foreach my $cf (@called_functions) {
-					my $called_package = $cf->ent->parent->longname();
-					if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
+		foreach my $s (@s) {
+			print $s->longname() . "\n";
+			my @called_functions = $s->refs("Ada Call");
+			foreach my $cf (@called_functions) {
+				my $called_package = $cf->ent->parent->longname();
+				print "\t" . $called_package . "\n";
+				if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
+					push(@result, $s);
+					last;
+				}
+				if ($called_package eq $main::packages[0]) {
+					if (rec_func($cf) == 1) {
 						push(@result, $s);
 						last;
-					}
-					if ($called_package eq $main::packages[0]) {
-						if (rec_func($cf) == 1) {
-							push(@result, $s);
-							last;
-						}
 					}
 				}
 			}
@@ -479,7 +482,7 @@ sub getSubprogramList {
 
 sub parameters {
 
-	my @params = $_[0]->ents("Ada Declare", "Ada Parameter");
+	my @params = $_[0]->ents("Ada Declare Spec", "Ada Parameter");
 
 	my $result = "";
 
@@ -493,7 +496,7 @@ sub parameters {
 }
 
 sub setSignVars {
-	my @params = $_[0]->ents("Ada Declare", "Ada Parameter");
+	my @params = $_[0]->ents("Ada Declare Spec", "Ada Parameter");
 
 	my $result = "";
 
