@@ -320,35 +320,28 @@ sub _updateBody
 
 			$newstring = $string;
 
-			print $newstring . "\n";
+			# print $newstring . "\n";
 
-			$tempStr = $newstring;
-			$tempStr =~ tr/\"//;
+			# $tempStr = $newstring;
+			# $tempStr =~ tr/\"//;
 
-			print $tempStr . "\n";
+			# print $tempStr . "\n";
 
-			@spEntityArray = $db->lookup($tempStr);
-			$spEntity = @spEntityArray[0];
+			# @spEntityArray = $db->lookup($tempStr);
+			# $spEntity = @spEntityArray[0];
 			$paramString = "";
-			if (@spEntityArray != ()) {
-				@spEntityParamArray = $spEntity->refs("Ada Declare", "Ada Parameter");
-				foreach (@spEntityParamArray) {
-					# $paramString = $paramString . $_->ent->name() . " :";
-				# 	if ($_->ent>ref("Ada Typed")->ent->kindname() =~ /Type$/ or $_->ent>ref("Ada Typed")->ent->kindname() =~ /Type Enumeration/) {
-				# 		$paramString = $paramString . $_->ent>ref("Ada Typed")->ent->longname() . "'Image(" . $_->ent->name . ")\n";
-				# 	}
-				# 	else {
-				# 		$paramString = $paramString . " unprintable type\n";
-				# 	}
-					if ($_->ent->type =~ /out /) {
-						print "out\n";
-						$paramString = "Ada.Text_IO.Put_Line \(\"WARNING: out parameter\"\);\n";
-					}
-				}
-				if ($spEntity->type() ne "") {
-					$paramString = "Ada.Text_IO.Put_Line \(\"WARNING: ret value\"\);\n";
-				}
-			}
+			# if (@spEntityArray != ()) {
+			# 	@spEntityParamArray = $spEntity->refs("Ada Declare", "Ada Parameter");
+			# 	foreach (@spEntityParamArray) {
+			# 		if ($_->ent->type =~ /out /) {
+			# 			print "out\n";
+			# 			$paramString = "Ada.Text_IO.Put_Line \(\"WARNING: out parameter\"\);\n";
+			# 		}
+			# 	}
+			# 	if ($spEntity->type() ne "") {
+			# 		$paramString = "Ada.Text_IO.Put_Line \(\"WARNING: ret value\"\);\n";
+			# 	}
+			# }
 
 			$newstring =~ tr/\"/'/;
 			$newstring_nometa = quotemeta($newstring);
