@@ -517,6 +517,7 @@ sub setSignVars {
 			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- &   init ==");
 			addString(\$result, ",\n                -- &   ev = ");
 			getSubItems(\$result, $typeEnt, 1, 0);
+			addString(\$result, "\n");
 		}
 		if ($mode eq "in out ") {
 			# print "INOUT\n";
