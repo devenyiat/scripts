@@ -1,0 +1,23 @@
+V "GNAT Lib v2013"
+P ZX
+
+RN
+RV NO_EXCEPTIONS
+RV NO_IMPLEMENTATION_PRAGMAS
+RV SPARK
+
+U testpackage%b		testpackage.adb		72d3442c NE OO PK
+
+U testpackage%s		testpackage.ads		c53d6150 EE NE OO PK
+
+D system.ads		20130417131036 5fc8ae56
+D testpackage.ads	20140405211452 c53d6150
+D testpackage.adb	20140405204048 b7ee257c
+X 2 testpackage.ads
+1K9*TestPackage 11l5 11e16 3|1b14 14l5 14t16
+2I14*PrivateType 6r47 9c14 10r20 3|7r41
+6U19*TestProcedure 6>35 3|7b14 12l8 12t21
+6i35 param1{9I14} 3|7b29
+9I14*PrivateType<integer>
+10i9*Variable{9I14}
+

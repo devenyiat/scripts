@@ -2,7 +2,6 @@ use Cwd;
 use Class::Struct;
 use File::Copy;
 use File::Path;
-use File::stat;
 use Understand;
 use threads;
 use threads::shared;
@@ -14,47 +13,24 @@ my %filehash;
 my %packages;
 my $workdir = cwd();
 
-my @switches;
+my $mode = 0;
 
 sub setMode {
-
-	@sws = @ARGV;
-
-	if (not("-a" ~~ @sws or "-s" ~~ @sws or "-ns" ~~ @sws or "-m" ~~ @sws)) {
-		print "Missing switch for setting way of stubbing; type it now (-a, -s, -ns, -m): ";
-		my $sw = <STDIN>;
-		$sw =~ "(.*)\n";
-		push(@sws, $sw);
-	}
-	if (not("-n" ~~ @sws or "-u" ~~ @sws)) {
-		print "Missing switch for setting way of building environment; type it now (-n, -u): ";
-		my $sw = <STDIN>;
-		$sw =~ "(.*)\n";
-		push(@sws, $sw);
-	}
-
-	if ("-a" ~~ @sws) {
-		$switches[1] = 0;
-	}
-	if ("-s" ~~ @sws) {
-		$switches[1] = 3;
-	}
-	if ("-ns" ~~ @sws) {
-		$switches[1] = 1;
+	if ($ARGV[0] eq "-auto") {
+		$mode = 0;
 	} 
-	if ("-m" ~~ @sws) {
-		$switches[1] = 2;
-	}
-
-	if ("-u" ~~ @sws) {
-		$switches[0] = 0;
-	}
-	if ("-n" ~~ @sws) {
-		$switches[0] = 1;
+	if ($ARGV[0] eq "-stub") {
+		$mode = 3;
+	} 
+	if ($ARGV[0] eq "-nostub") {
+		$mode = 1;
+	} 
+	if ($ARGV[0] eq "-manual") {
+		$mode = 2;
 	}
 }
 
-# print $switches[1] . "\n";
+# print $mode . "\n";
 
 
 # --------------
@@ -80,16 +56,15 @@ $CC_Location = "";
 # --------------
 
 sub scan {
-	my @files = ();
-	scandirs($_[0], "root", \@files);
+	@g_temp = ();
+	scandirs($_[0]);
 	chdir($workdir);
-	return @files;
+	return @g_temp;
 }
 
 sub scandirs {
 	my $dir;
-	my $ref = $_[2];
-	if ($_[1] ne "root"){
+	if ($_[1] =~ /(\w+)/){
 		$dir = $_[0] . "/" . $_[1];
 	}
 	else {
@@ -100,25 +75,17 @@ sub scandirs {
 	foreach $file (@files) {
 		chdir($dir);
 		if (-f $file) {
-			if (($file =~ /(.*)\.ads$/) or ($file =~ /(.*)\.adb$/) or ($file =~ /(.*)\.ada$/)) {
+			if (($file =~ /\.ads$/) or ($file =~ /\.adb$/) or ($file =~ /\.ada$/)) {	
 				$number_of_files = $number_of_files + 1;
 				my $string = "#dir: " . $dir . "/ #file: " . $file;
-				push(@$ref, $string);
+				push(@g_temp, $string);
 			}
 		}
 		if (-d $file) {
-			scandirs($dir, $file, $ref);
+			scandirs($dir, $file);
 		}
 	}
 }
-
-# **
-# @params
-# 	$_[0] : Source file's registry
-#	$_[1] : Destination directory
-#	$_[2] : Keep directory structure (0 - yes, 1 - no)
-# 
-# **
 
 sub copyFile {
 
@@ -128,79 +95,29 @@ sub copyFile {
 	$from = $absolutePath . $fileName;
 
 	if ($_[2] == 0) {
-		$to = $_[1] . getRelativePathFromRegistryValue($_[0]) . getFileNameFromPackageName(getPackageNameFromRegistryValue($_[0]), $type, getRoleFromLocation($_[1]));
+		$to = $_[1] . getRelativePathFromRegistryValue($_[0]) . getFileNameFromPackageName(getPackageNameFromRegistryValue($_[0]), $type);
 		mkpath($_[1] . getRelativePathFromRegistryValue($_[0]));
 	}
 	else {
-		$to = $_[1] . getFileNameFromPackageName(getPackageNameFromRegistryValue($_[0]), $type, getRoleFromLocation($_[1]));
+		$to = $_[1] . getFileNameFromPackageName(getPackageNameFromRegistryValue($_[0]), $type);
 	}
 
 	copy($from, $to) or die "died at copying from $from to $to";
 	chmod 0777, $to;
 }
 
-# **
-# @params
-# 	$_[0] : Source directory
-#	$_[1] : Destination directory
-#	$_[2] : Type of files to be copied
-#	$_[3] : Keep directory structure (0 - yes, 1 - no)
-# 
-# **
-
 sub copydir {
-	my @files = scan($_[0]);
-	foreach $file (@files) {
-		if ($_[2] eq "all" or getTypeFromRegistryValue($file) eq $_[2]) {
+	scan($_[0]);
+	foreach $file (@g_temp) {
+		if ($_[2] eq "all" or $file =~ m/\.$_[2]$/) {
 			copyFile($file, $_[1], $_[3]);
 		}
 	}
 }
 
-# **
-# @params
-# 	$_[0] : Source directory
-#	$_[1] : Destination directory
-#	$_[2] : Type of files to be copied
-#	$_[3] : Keep directory structure (0 - yes, 1 - no)
-# 
-# **
-
-sub copyDiff {
-	my @files = scan($_[0]);
-	foreach my $fileEnt (@files) {
-		if ($_[2] eq "all" or getTypeFromRegistryValue($file) eq $_[2]) {
-			my $newFilesHandler = getAbsolutePathFromRegistryValue($fileEnt) . getFileNameFromRegistryValue($fileEnt);
-			my $existingFilesEnt = getRegistryValueFromPackageName(getPackageNameFromRegistryValue($fileEnt), getTypeFromRegistryValue($fileEnt), \@g_unmodified_sources);
-			if ($existingFilesEnt eq "nullPointerException") {
-				copyFile($fileEnt, $_[1], $_[3]);
-			}
-			else {
-				my $existingFilesHandler = getAbsolutePathFromRegistryValue($existingFilesEnt) . getFileNameFromRegistryValue($existingFilesEnt);
-				$stat1 = stat($newFilesHandler);
-				$stat2 = stat($existingFilesHandler);
-				if ($stat1->mtime > $stat2->mtime) {
-					copyFile($fileEnt, $_[1], $_[3]);
-				}
-			}
-		}
-	}
-
-	foreach my $fileEnt (@g_unmodified_sources) {
-		my $package = getPackageNameFromRegistryValue($fileEnt);
-		my @list = grep(/$package/i, @files);
-		if ($#list + 1 == 0) {
-			unlink(getAbsolutePathFromRegistryValue($fileEnt) . getFileNameFromRegistryValue($fileEnt));
-		}
-		if ($#list + 1 == 1 and getTypeFromRegistryValue($list[0]) ne getTypeFromRegistryValue($fileEnt)) {
-			unlink(getAbsolutePathFromRegistryValue($fileEnt) . getFileNameFromRegistryValue($fileEnt));
-		}
-	}
-}
-
 sub copyAdsFiles {
-	copydir("n:/Source/", "n:/Stubs/", "spec", 1);
-	copydir("n:/Additional_Files/", "n:/Stubs/", "spec", 1);
+	copydir("n:/Source/", "n:/Stubs/", "ads", 1);
+	copydir("n:/Additional_Files/", "n:/Stubs/", "ads", 1);
 	@stubs = scan("n:/Stubs/");
 }
 
@@ -332,11 +249,11 @@ sub createBodyForPackage
 	
 	# checkPoint("called createBodyForPackage with $_[0] $_[1]");
 
-	$specfile = "n:/Stubs/" . getFileNameFromPackageName($_[0], "spec", "stub");
+	$specfile = "n:/Stubs/" . getFileNameFromPackageName($_[0], "spec");
 
 	_generateBody($specfile, $_[1]);
 
-	$bodyfile = "$_[1]" . getFileNameFromPackageName($_[0], "body", getRoleFromLocation($_[1]));
+	$bodyfile = "$_[1]" . getFileNameFromPackageName($_[0], "body");
 
 	if (-e $bodyfile) {
 		_updateBody($bodyfile);
@@ -672,25 +589,15 @@ sub listFiles {
 			if ($running == 1) {
 				$running = 0;
 			}
-			$result = $matches[0];
-			# print "\nPlease choose the most appropriate one to continue:\n\n";
-			# foreach $match (@matches) {
-			# 	print $num++ . " - $match \n\n";
-			# }
-			# print "-----------------------\n";
-			# print "\nfile to copy: ";
-			# my $in = <STDIN>;
-			# $result = $matches[$in];
-			# print "\n\n";
-			foreach my $match (@matches) {
-				my $resultsFileHandler = getAbsolutePathFromRegistryValue($result) . getFileNameFromRegistryValue($result);
-				my $challengersFileHandler = getAbsolutePathFromRegistryValue($match) . getFileNameFromRegistryValue($match);
-				$stat1 = stat($challengersFileHandler);
-				$stat2 = stat($resultsFileHandler);
-				if ($stat1->mtime > $stat2->mtime) {
-					$result = $match;
-				}
+			print "\nPlease choose the most appropriate one to continue:\n\n";
+			foreach $match (@matches) {
+				print $num++ . " - $match \n\n";
 			}
+			print "-----------------------\n";
+			print "\nfile to copy: ";
+			my $in = <STDIN>;
+			$result = $matches[$in];
+			print "\n\n";
 			$running = $pr;
 		}
 	}
@@ -707,9 +614,7 @@ sub getImports {
 	# checkPoint("called getImports with $_[0].$_[1]\n");
 
 	my @imports = ();
-
-	# checkPoint(getRegistryValueFromPackageName($_[0], $_[1], \@g_unmodified_sources));
-	$file = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName($_[0], $_[1], \@g_unmodified_sources)) . getFileNameFromPackageName($_[0], $_[1], "source");
+	$file = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName($_[0], $_[1], \@g_unmodified_sources)) . getFileNameFromPackageName($_[0], $_[1]);
 
 	open FH, "<$file";
 	my @lines = ();
@@ -753,6 +658,7 @@ sub gatherSpecFiles {
 	@listToGather = (@listToGather, getImports($package, $_[1]));
 
 	foreach $packageToAdd (@listToGather) {
+		# print "$packageToAdd.spec shall be added\n";
 		if (not "$packageToAdd.spec" ~~ @packagesList) {
 			addSpecFile($packageToAdd);
 		}
@@ -761,7 +667,7 @@ sub gatherSpecFiles {
 
 sub addFileToList {
 	$ref_array = $_[3];
-	$registry = "#dir: $_[0]/ #file: " . getFileNameFromPackageName($_[1], $_[2], getRoleFromLocation($_[0]));
+	$registry = "#dir: $_[0]/ #file: " . getFileNameFromPackageName($_[1], $_[2]);
 	push(@$ref_array, $registry);
 	return $registry;
 }
@@ -782,7 +688,6 @@ sub addFile {
 			copyFile($fileToCopy, "n:/Stubs/", 1);
 		}
 		addFileToList("n:/Additional_Files/", $_[0], $_[1], \@g_unmodified_sources);
-		push(@packagesList, "$_[0].$_[1]");
 		return "file added";
 	}
 	else {
@@ -792,6 +697,7 @@ sub addFile {
 
 sub addSpecFile {
 	if (addFile($_[0], "spec", "n:/Additional_Files/") eq "file added") {
+		push(@packagesList, "$_[0].spec");
 		gatherSpecFiles($_[0], "spec");
 	}
 }
@@ -814,10 +720,10 @@ sub addBodyFile {
 
 	my $toStub = 0;
 	# if selected mode is auto
-	if (($switches[1] == 0 and not $_[0] ~~ @g_exceptions) or $switches[1] == 3) {
+	if (($mode == 0 and not $_[0] ~~ @g_exceptions) or $mode == 3) {
 		$toStub = 1;
 	}
-	if ($switches[1] == 2) {
+	if ($mode == 2) {
 		print "Would you like to stub the package $_[0]? (Y/N) ";
 		$in = <STDIN>;
 		if ($in eq "Y\n") {
@@ -1465,7 +1371,7 @@ sub getPackageNameFromRegistryValue {
 	$_[0] =~ m/#dir: (.*)\/\/(.*) #file: (.*?)\.(\d\.)?ad(.)/;
 	my $result = $3;
 	$result =~ tr/-/./;
-	# $result = lc $result;
+	$result = lc $result;
 	return $result;
 }
 
@@ -1475,37 +1381,10 @@ sub getFileNameFromRegistryValue {
 	return $result;
 }
 
-sub getRoleFromLocation {
-	if ($_[0] eq "n:/Stubs/") {
-		return "stub";
-	}
-	else {
-		return "source";
-	}
-}
-
-# **
-# @params
-#  	$_[0] : Package
-#	$_[1] : Type
-#	$_[2] : Stub / Source
-# 
-# **
-
 sub getFileNameFromPackageName {
 	$result = lc $_[0];
-	if ($_[2] eq "stub") {
-		$result =~ tr/./-/;
-		$result = $result . ".ad" . substr($_[1], 0, 1);
-	}
-	else {
-		if ($_[1] eq "spec") {
-			$result = $result . ".1.ada";
-		}
-		else {
-			$result = $result . ".2.ada"
-		}
-	}
+	$result =~ tr/./-/;
+	$result = $result . ".ad" . substr($_[1], 0, 1);
 	return $result;
 }
 
@@ -1513,11 +1392,12 @@ sub getRegistryValueFromPackageName {
 	my $ext;
 	my $ref_array = $_[2];
 	if ($_[1] eq "spec") {
-		@result = (grep(/#file: $_[0].ads/, @$ref_array), grep(/#file: $_[0].1.ada/, @$ref_array));
+		$ext = "s";
 	}
 	else {
-		@result = (grep(/#file: $_[0].adb/, @$ref_array), grep(/#file: $_[0].2.ada/, @$ref_array));
+		$ext = "b";
 	}
+	@result = grep {/#file: $_[0].ad$ext/} @$ref_array;
 	if (@result == ()) {
 		# print "fatal error: cannot find: $_[0].$_[1]";
 		# die;
@@ -1530,7 +1410,7 @@ sub getRegistryValueFromPackageName {
 }
 
 sub getPackageNameFromFileName {
-	$_[0] =~ m/(.*?)\.(\d\.)?ad(.)/;
+	$_[0] =~ m/(.*)\.ad./;
 	$result = $1;
 	$result =~ tr/-/./;
 	return $result;
@@ -1546,7 +1426,7 @@ sub generateStubBodies {
 
 			$progress = int($idx / $c * 100);
 
-			$body = "n:/Stubs/" . getFileNameFromPackageName(getPackageNameFromRegistryValue($stub) , "body", "stub");
+			$body = "n:/Stubs/" . getFileNameFromPackageName(getPackageNameFromRegistryValue($stub) , "body");
 			# $spec = "n:/Stubs/" . getFileNameFromRegistryValue($stub);
 
 			if (!(-e $body)) {
@@ -1591,27 +1471,20 @@ sub main {
 	open LOG, ">$workdir/log";
 
 	# read available sources from clearcase
-	print "Reading CC libraries: ... ";
-	@CC_list = scan($CC_Location);
-
+	print "Reading q: ... ";
+	if ($ARGV[1] ne "") {
+		@CC_list = (scan("q:/"), scan($ARGV[1]));
+	}
+	else {
+		@CC_list = scan("q:/");
+	}
 	print "Done.\n";
 	readExceptions();
 
-	# create list of sources to compile
-	@g_unmodified_sources = scan("n:/Source/");
-
 	# copy sources to compile
 	print "Copying sources... ";
-	if ($switches[0] == 1) {
-		copydir("n:/temp/", "n:/Source/", "all", 0);
-	}
-	else {
-		print "copyDiff";
-		copyDiff("n:/temp/", "n:/Source/", "all", 0);
-	}
+	copydir("n:/temp/", "n:/Source/", "all", 0);
 	print "Done.\n";
-
-	<STDIN>;
 
 	# insert elab
 	print "Modifying sources... ";
@@ -1633,27 +1506,13 @@ sub main {
 
 	# check for dependencies
 	print "Gathering spec files\n";
-	my @temporalListOfSources = @g_unmodified_sources;
-	foreach $source (@temporalListOfSources) {
+	foreach $source (@g_unmodified_sources) {
 		gatherSpecFiles(getPackageNameFromRegistryValue($source), getTypeFromRegistryValue($source));
-
-	}
-
-	updateDatabase();
-	openDatabase();
-
-	foreach $source (@temporalListOfSources) {
-		if (getTypeFromRegistryValue($source) eq "body") {
-			@subunits = getSubunits(getPackageNameFromRegistryValue($source));
-			foreach $s (@subunits) {
-				addFile($s, "body", $dir);
-			}
-		}
 	}
 
 	# copy all ads to stubs
-	copydir("n:/Source/", "n:/Stubs/", "spec", 1);
-	copydir("n:/Additional_Files/", "n:/Stubs/", "spec", 1);
+	copydir("n:/Source/", "n:/Stubs/", "ads", 1);
+	copydir("n:/Additional_Files/", "n:/Stubs/", "ads", 1);
 	@stubs = scan("n:/Stubs/");
 
 	print "Updating database\n";
@@ -1668,7 +1527,7 @@ sub main {
 	instance_maker();
 	print "Done. (DT: $dataTypeCount; PT: $portTypeCount; GO: $genericOperatorCount)\n";
 
-	# $switches[1] = 0;
+	# $mode = 0;
 	
 	print "Copy custom modifications to the stubs folder! Press ENTER when done"; <STDIN>;
 
@@ -1708,16 +1567,12 @@ sub init {
 	# start progressbar thread
 	$thr = threads->create('showProgress');
 
+	# mount clearcase to q:
+	system("subst q: /d");
 	print "ClearCase location: ";
-	$CC_Location = <STDIN>;
-	$CC_Location =~ m/(.*)\n/;
-	$CC_Location = $1;
-	if (substr($CC_Location, -1, 1) ne "\\") {
-		$CC_Location = $CC_Location . "\\";
-	}
-	$CC_Location =~ s/\\/\//g;
-
-	print $CC_Location;
+	$cc_loc = <STDIN>;
+	$cc_loc =~ s/\\/\//g;
+	system("subst q: $cc_loc");
 }
 
 # share variables between threads

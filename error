@@ -1,0 +1,30 @@
+types_alstom.debug.1.ada:65:20: "Word_T" is undefined (more references follow)
+types_alstom.debug.1.ada:69:25: "New_Index_T" is undefined (more references follow)
+types_alstom.debug.1.ada:75:30: "Unchecked_Word_T" is undefined (more references follow)
+types_alstom.debug.1.ada:81:20: "Real_T" is undefined (more references follow)
+types_alstom.debug.1.ada:85:19: "Bit_T" is undefined (more references follow)
+types_alstom.debug.1.ada:125:56: "Nul_Real_C" is undefined
+p2oo34u500.debug.1.ada:41:46: "Positive_Word_T" not declared in "Types_Alstom"
+p2oo34u500.debug.1.ada:55:36: "Positive_Word_T" not declared in "Types_Alstom"
+p2oo34u500.debug.1.ada:56:47: "Positive_Word_T" not declared in "Types_Alstom"
+p2oo34u500.debug.1.ada:103:39: "Natural_Word_T" not declared in "Types_Alstom"
+p2oo34u500.debug.1.ada:138:69: "Positive_Word_T" not declared in "Types_Alstom"
+p2oo34u500.debug.1.ada:139:71: "Positive_Word_T" not declared in "Types_Alstom"
+p2oo34u500.debug.1.ada:147:62: "Natural_Word_T" not declared in "Types_Alstom"
+p2oo34u500.debug.1.ada:156:61: "Natural_Word_T" not declared in "Types_Alstom"
+p2oo34u500.debug.1.ada:165:68: "Positive_Word_T" not declared in "Types_Alstom"
+p2oo34u500.debug.1.ada:166:63: "Positive_Word_T" not declared in "Types_Alstom"
+debug.1.ada:135:40: "Byte_Array_T" not declared in "Types_Alstom"
+p2oo34u500.debug_type.1.ada:68:37: "Bits_T" not declared in "Types_Alstom"
+p2oo34u500.debug_type.1.ada:68:45: incorrect constraint for this kind of type
+database_tools.database_io.1.ada:50:21: "Natural_Long_T" is undefined (more references follow)
+database_tools.database_io.1.ada:91:42: "Word_T" not declared in "Types_Alstom"
+database_tools.database_io.1.ada:96:69: "Word_T" not declared in "Types_Alstom"
+database_tools.database_io.1.ada:184:25: "Positive_Long_T" is undefined (more references follow)
+p2oo34u500.fifo.1.ada:36:19: "Positive_Word_T" is undefined (more references follow)
+p2oo34u500.fifo.1.ada:42:49: "Natural_Word_T" is undefined (more references follow)
+p2oo34u500.fifo.1.ada:105:44: "Positive_Word_T" not declared in "Types_Alstom"
+p2oo34u500.fifo.1.ada:114:45: "Natural_Word_T" not declared in "Types_Alstom"
+p2oo34u500.observability_counter.1.ada:32:35: "Positive_Word_T" not declared in "Types_Alstom"
+p2oo34u500.observability_counter.1.ada:33:35: "Naturel_Long_T" not declared in "Types_Alstom"
+gprbuild: *** compilation phase failed
