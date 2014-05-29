@@ -10,8 +10,6 @@ use Thread::Semaphore;
 
 my @CC_list = ();
 
-my %filehash;
-my %packages;
 my $workdir = cwd();
 
 my @switches;
@@ -52,9 +50,11 @@ sub setMode {
 	if ("-n" ~~ @sws) {
 		$switches[0] = 1;
 	}
+    
+    if ("-c" ~~ @sws) {
+        $switches[2] = 1;
+    }
 }
-
-# print $switches[1] . "\n";
 
 
 # --------------
@@ -76,7 +76,6 @@ $portTypeCount = 0;
 $genericOperatorCount = 0;
 
 $CC_Location = "";
-
 # --------------
 
 sub scan {
@@ -111,7 +110,6 @@ sub scandirs {
 		}
 	}
 }
-
 # **
 # @params
 # 	$_[0] : Source file's registry
@@ -128,11 +126,11 @@ sub copyFile {
 	$from = $absolutePath . $fileName;
 
 	if ($_[2] == 0) {
-		$to = $_[1] . getRelativePathFromRegistryValue($_[0]) . getFileNameFromPackageName(getPackageNameFromRegistryValue($_[0]), $type, getRoleFromLocation($_[1]));
+		$to = $_[1] . getRelativePathFromRegistryValue($_[0]) . getFileNameFromPackageName(getPackageNameFromRegistryValue($_[0]), $type);
 		mkpath($_[1] . getRelativePathFromRegistryValue($_[0]));
 	}
 	else {
-		$to = $_[1] . getFileNameFromPackageName(getPackageNameFromRegistryValue($_[0]), $type, getRoleFromLocation($_[1]));
+		$to = $_[1] . getFileNameFromPackageName(getPackageNameFromRegistryValue($_[0]), $type);
 	}
 
 	copy($from, $to) or die "died at copying from $from to $to";
@@ -197,7 +195,6 @@ sub copyDiff {
 		}
 	}
 }
-
 sub copyAdsFiles {
 	copydir("n:/Source/", "n:/Stubs/", "spec", 1);
 	copydir("n:/Additional_Files/", "n:/Stubs/", "spec", 1);
@@ -332,11 +329,11 @@ sub createBodyForPackage
 	
 	# checkPoint("called createBodyForPackage with $_[0] $_[1]");
 
-	$specfile = "n:/Stubs/" . getFileNameFromPackageName($_[0], "spec", "stub");
+	$specfile = "n:/Stubs/" . getFileNameFromPackageName($_[0], "spec");
 
 	_generateBody($specfile, $_[1]);
 
-	$bodyfile = "$_[1]" . getFileNameFromPackageName($_[0], "body", getRoleFromLocation($_[1]));
+	$bodyfile = "$_[1]" . getFileNameFromPackageName($_[0], "body");
 
 	if (-e $bodyfile) {
 		_updateBody($bodyfile);
@@ -500,14 +497,10 @@ sub compile_routine {
 	my $exit = 0;
 
 	$running = 1;
-	system("\"c:\\GNAT\\2013\\bin\\gprbuild.exe\" -q -d $_[0] 1>$workdir/stat 2>$workdir/error");
+	system("\"c:\\GNAT\\2012\\bin\\gprbuild.exe\" -q -d $_[0] 1>$workdir/stat 2>$workdir/error");
 	$running = 0;
 
 	my @errors = readerror();
-
-	foreach my $error (@errors) {
-		print $error;
-	}
 
 	if ($errors[$#error] !~ m/failed/) {
 		$status = 2;
@@ -537,7 +530,6 @@ sub compile_routine {
 			}
 			if ($e =~ m/cannot generate code for file (.*)\.ads/ or $e =~ m/but file \"(.*)\.adb\" was not found/) {
 				$file = lc $1 . ".adb";
-				print $file;
 				$p = getPackageNameFromFileName($file);
 				if ($debug == 1) {
 					checkPoint("#1 $p");
@@ -606,7 +598,6 @@ sub compile_routine {
 
 			if ($e =~ m/cannot generate code for file (.*) \(missing subunits\)/) {
 				# print "finding subunits"; <STDIN>;
-				print getPackageNameFromFileName($1);
 				@subunits = getSubunits(getPackageNameFromFileName($1));
 				foreach $s (@subunits) {
 					addFile($s, "body", $dir);
@@ -672,25 +663,15 @@ sub listFiles {
 			if ($running == 1) {
 				$running = 0;
 			}
-			$result = $matches[0];
-			# print "\nPlease choose the most appropriate one to continue:\n\n";
-			# foreach $match (@matches) {
-			# 	print $num++ . " - $match \n\n";
-			# }
-			# print "-----------------------\n";
-			# print "\nfile to copy: ";
-			# my $in = <STDIN>;
-			# $result = $matches[$in];
-			# print "\n\n";
-			foreach my $match (@matches) {
-				my $resultsFileHandler = getAbsolutePathFromRegistryValue($result) . getFileNameFromRegistryValue($result);
-				my $challengersFileHandler = getAbsolutePathFromRegistryValue($match) . getFileNameFromRegistryValue($match);
-				$stat1 = stat($challengersFileHandler);
-				$stat2 = stat($resultsFileHandler);
-				if ($stat1->mtime > $stat2->mtime) {
-					$result = $match;
-				}
+			print "\nPlease choose the most appropriate one to continue:\n\n";
+			foreach $match (@matches) {
+				print $num++ . " - $match \n\n";
 			}
+			print "-----------------------\n";
+			print "\nfile to copy: ";
+			my $in = <STDIN>;
+			$result = $matches[$in];
+			print "\n\n";
 			$running = $pr;
 		}
 	}
@@ -707,9 +688,7 @@ sub getImports {
 	# checkPoint("called getImports with $_[0].$_[1]\n");
 
 	my @imports = ();
-
-	# checkPoint(getRegistryValueFromPackageName($_[0], $_[1], \@g_unmodified_sources));
-	$file = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName($_[0], $_[1], \@g_unmodified_sources)) . getFileNameFromPackageName($_[0], $_[1], "source");
+	$file = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName($_[0], $_[1], \@g_unmodified_sources)) . getFileNameFromPackageName($_[0], $_[1]);
 
 	open FH, "<$file";
 	my @lines = ();
@@ -753,6 +732,7 @@ sub gatherSpecFiles {
 	@listToGather = (@listToGather, getImports($package, $_[1]));
 
 	foreach $packageToAdd (@listToGather) {
+		# print "$packageToAdd.spec shall be added\n";
 		if (not "$packageToAdd.spec" ~~ @packagesList) {
 			addSpecFile($packageToAdd);
 		}
@@ -761,7 +741,7 @@ sub gatherSpecFiles {
 
 sub addFileToList {
 	$ref_array = $_[3];
-	$registry = "#dir: $_[0]/ #file: " . getFileNameFromPackageName($_[1], $_[2], getRoleFromLocation($_[0]));
+	$registry = "#dir: $_[0]/ #file: " . getFileNameFromPackageName($_[1], $_[2]);
 	push(@$ref_array, $registry);
 	return $registry;
 }
@@ -799,12 +779,12 @@ sub addSpecFile {
 sub getSubunits {
 	@result = ();
 	@p = $db->lookup($_[0], "Ada Package");
-	# if (@s != ()) {
-		@s = $p[0]->refs("Ada Declare Stub");
-		foreach $su (@s) {
-			push(@result, $su->ent->longname());
-		}
-	# }	
+    if (@p != ()) {
+        @s = $p[0]->refs("Ada Declare Stub");
+        foreach $su (@s) {
+            push(@result, lc $su->ent->longname());
+        }
+    }
 	return @result;
 }
 
@@ -881,392 +861,395 @@ sub instance_maker {
 
 		# DATA_TYPE BEGIN
 
-		# if file contains Data_Type instantiation
-		# if ($content =~ m/\n( *)package (.*) is new Data_Type( *)/ and not $content =~ m/Data_Type_Gen/){
-		if ($content =~ m/\n( *)package (.*) is new Data_Type/){
+		# if file has not been modified yet
+		if ($content !~ m/-- The file has been modified for testing/) {
+        
+            # if file contains Data_Type instantiation
+            if ($content =~ m/\n( *)package (.*) is new Data_Type/){
 
-			while ($content =~ m/\n( *)package (.*) is new Data_Type(_Gen)?([\s|\(]*\n)?( *)(.*)(\n.*)(\n.*)?;/g) {
-				# get package name
-				$package_name = $2;
+                while ($content =~ m/\n( *)package (.*) is new Data_Type(_Gen)?([\s|\(]*\n)?( *)(.*)(\n.*)(\n.*)?;/g) {
+                    # get package name
+                    $package_name = $2;
 
-				# creating new files
-				$new_package_name = $original_package_name . "_" . $package_name;	
-				my $new_file = lc "Manager" . $dr . $new_package_name;
-				# mkdir "Data_Type_Instances";
-				copy("templates/manager-data_type_gen.ads", "n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
-				copy("templates/manager-data_type_gen.adb", "n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
-				addFileToList("n:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
-				addFileToList("n:/Stubs/", "manager$dr$new_package_name", "body", \@g_generated_sources);
-				print LOG "Manager\.$new_package_name has been created\n";
-				$dataTypeCount++;
+                    # creating new files
+                    $new_package_name = $original_package_name . "_" . $package_name;	
+                    my $new_file = lc "Manager" . $dr . $new_package_name;
+                    # mkdir "Data_Type_Instances";
+                    copy("templates/manager-data_type_gen.ads", "n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
+                    copy("templates/manager-data_type_gen.adb", "n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
+                    addFileToList("n:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
+                    addFileToList("n:/Stubs/", "manager$dr$new_package_name", "body", \@g_generated_sources);
+                    print LOG "Manager\.$new_package_name has been created\n";
+                    $dataTypeCount++;
 
-				# get g_value_type and g_default_value lines
-				$g_value_type = $6;
-				$g_default_value = $7;
-				$g_unit_of_measure = $8;
+                    # get g_value_type and g_default_value lines
+                    $g_value_type = $6;
+                    $g_default_value = $7;
+                    $g_unit_of_measure = $8;
 
-				# get g_value_type
-				$g_value_type =~ /G_Value_Type( *)=> (.*),/i;
-				$value_type = $2;
-				
-				# get type_prefix (what we should include)
-				$value_type =~ /(.*)\./;
-				$type_prefix = $1;
-				# $type_prefix = $value_type;
+                    # get g_value_type
+                    $g_value_type =~ /G_Value_Type( *)=> (.*),/i;
+                    $value_type = $2;
+                    
+                    # get type_prefix (what we should include)
+                    $value_type =~ /(.*)\./;
+                    $type_prefix = $1;
+                    # $type_prefix = $value_type;
 
-				# get g_dafault_value
-				$g_default_value =~ /G_Default_Value( *)=> (.*)(\)|,)/i;
-				$default_value = $2;
+                    # get g_dafault_value
+                    $g_default_value =~ /G_Default_Value( *)=> (.*)(\)|,)/i;
+                    $default_value = $2;
 
-				# get g_unit_of_measure if exists
-				if ($g_unit_of_measure =~ /( *)G_Unit_Of_Measure( *)=> (.*)\)/i) {
-					$unit_of_measure = $3;
-				}
+                    # get g_unit_of_measure if exists
+                    if ($g_unit_of_measure =~ /( *)G_Unit_Of_Measure( *)=> (.*)\)/i) {
+                        $unit_of_measure = $3;
+                    }
 
-				# editing the new ada spec file
-				open(DT, "<n:/Stubs/$new_file.ads") or die "error opening n:/Stubs/$new_file.ads";
-				@g_lines = <DT>;
-				close DT;
-				open (DT, ">n:/Stubs/$new_file.ads");
-				for (@g_lines){
-					s/Manager.Data_Type_Gen.ads/$new_file.ads/;
-					if ($type_prefix =~ /(\w+)/) {
-						s/with TYPE_PREFIX;/with $type_prefix;/
-					}
-					else {
-						s/with TYPE_PREFIX;//;
-					}
-					s/INSTANCE_NAME/$new_package_name/;
-					s/G_VALUE_TYPE_PARAMATER/$value_type/;
-					s/G_DEFAULT_VALUE_PARAMATER/$default_value/;
-					if ($unit_of_measure =~ /(\w+)/){
-						s/G_UNIT_OF_MEASURE_PARAMETER/$unit_of_measure/;
-					}
-					else {
-						s/G_UNIT_OF_MEASURE_PARAMETER/Types.None/;
-					}
-					s/G_PRECISION_PARAMETER/1/;
-					if (@uses != ()) {
-						s/with USE/@uses/;
-					}
-					else {
-						s/with USE//;	
-					}
-					print DT;
-				}
-				close DT;
+                    # editing the new ada spec file
+                    open(DT, "<n:/Stubs/$new_file.ads") or die "error opening n:/Stubs/$new_file.ads";
+                    @g_lines = <DT>;
+                    close DT;
+                    open (DT, ">n:/Stubs/$new_file.ads");
+                    for (@g_lines){
+                        s/Manager.Data_Type_Gen.ads/$new_file.ads/;
+                        if ($type_prefix =~ /(\w+)/) {
+                            s/with TYPE_PREFIX;/with $type_prefix;/
+                        }
+                        else {
+                            s/with TYPE_PREFIX;//;
+                        }
+                        s/INSTANCE_NAME/$new_package_name/;
+                        s/G_VALUE_TYPE_PARAMATER/$value_type/;
+                        s/G_DEFAULT_VALUE_PARAMATER/$default_value/;
+                        if ($unit_of_measure =~ /(\w+)/){
+                            s/G_UNIT_OF_MEASURE_PARAMETER/$unit_of_measure/;
+                        }
+                        else {
+                            s/G_UNIT_OF_MEASURE_PARAMETER/Types.None/;
+                        }
+                        s/G_PRECISION_PARAMETER/1/;
+                        if (@uses != ()) {
+                            s/with USE/@uses/;
+                        }
+                        else {
+                            s/with USE//;	
+                        }
+                        print DT;
+                    }
+                    close DT;
 
-				# editing the new ada body file
-				open(DT, "<n:/Stubs/$new_file.adb") or die "error opening n:/Stubs/$new_file.adb";
-				@g_lines = <DT>;
-				close DT;
-				open (DT, ">n:/Stubs/$new_file.adb");
-				for (@g_lines){
-					s/INSTANCE_NAME/$new_package_name/;
-					print DT;
-				}
-				close DT;
-				push @dt_package_names, $package_name;
+                    # editing the new ada body file
+                    open(DT, "<n:/Stubs/$new_file.adb") or die "error opening n:/Stubs/$new_file.adb";
+                    @g_lines = <DT>;
+                    close DT;
+                    open (DT, ">n:/Stubs/$new_file.adb");
+                    for (@g_lines){
+                        s/INSTANCE_NAME/$new_package_name/;
+                        print DT;
+                    }
+                    close DT;
+                    push @dt_package_names, $package_name;
 
-				# editing the original file
-				# open(DT, "<$file") or die "error opening $file";
-				# @g_lines = <DT>;
-				# close DT;
-				# open (DT, ">$file");
-				# foreach (@g_lines) {
-				# $content =~	s/^([^-])*pragma Elaborate_All\s*\(Data_Type\)/$1--pragma Elaborate_All(Data_Type)/;
-				# $content =~	s/( *)package $package_name is new Data_Type(.*)/--HOST_TEST_BEGIN\npackage $package_name renames Manager.$new_package_name;\n--package $package_name is new Data_Type$2/;
-				# $content =~	s/^( *)\((.*),/--\($2,/g;
-				# $content =~	s/ G_Default_Value( *)=> (.*),/--G_Default_Value$1=> $2,/gi;
-				# $content =~	s/ G_Default_Value( *)=> (.*)\);/--G_Default_Value$1=> $2\);\n--HOST_TEST_END/gi;
-				# $content =~	s/ G_Unit_Of_Measure( *)=> (.*)\);/--G_Unit_Of_Measure$1=> $2\);\n--HOST_TEST_END/gi;
-					# print DT;
-				# }
+                    # editing the original file
+                    # open(DT, "<$file") or die "error opening $file";
+                    # @g_lines = <DT>;
+                    # close DT;
+                    # open (DT, ">$file");
+                    # foreach (@g_lines) {
+                    # $content =~	s/^([^-])*pragma Elaborate_All\s*\(Data_Type\)/$1--pragma Elaborate_All(Data_Type)/;
+                    # $content =~	s/( *)package $package_name is new Data_Type(.*)/--HOST_TEST_BEGIN\npackage $package_name renames Manager.$new_package_name;\n--package $package_name is new Data_Type$2/;
+                    # $content =~	s/^( *)\((.*),/--\($2,/g;
+                    # $content =~	s/ G_Default_Value( *)=> (.*),/--G_Default_Value$1=> $2,/gi;
+                    # $content =~	s/ G_Default_Value( *)=> (.*)\);/--G_Default_Value$1=> $2\);\n--HOST_TEST_END/gi;
+                    # $content =~	s/ G_Unit_Of_Measure( *)=> (.*)\);/--G_Unit_Of_Measure$1=> $2\);\n--HOST_TEST_END/gi;
+                        # print DT;
+                    # }
 
-				# close DT;
+                    # close DT;
 
-				push(@withs, $new_package_name);
-			}
+                    push(@withs, $new_package_name);
+                }
 
-			# open (DT, ">$file");
-			# $to_insert = "";
-			# foreach $w (@withs) {
-			# 	$to_insert = $to_insert . "with Manager.$with;\n";
-			# }
-			# foreach (@g_lines) {
-			# 	if (s/package (.*) is/--HOST_TEST_BEGIN\n$to_insert\n--HOST_TEST_END\n\npackage $1 is/){
-			# 		print DT;
-			# 		last;
-			# 	}
-			# }
-			# $content =~ s/package (.*) is( *)\n/--HOST_TEST_BEGIN\n$to_insert\n--HOST_TEST_END\n\npackage $1 is\n/;
-			# print DT, $content;
-			# close DT;
-			# @withs = ();
+                # open (DT, ">$file");
+                # $to_insert = "";
+                # foreach $w (@withs) {
+                # 	$to_insert = $to_insert . "with Manager.$with;\n";
+                # }
+                # foreach (@g_lines) {
+                # 	if (s/package (.*) is/--HOST_TEST_BEGIN\n$to_insert\n--HOST_TEST_END\n\npackage $1 is/){
+                # 		print DT;
+                # 		last;
+                # 	}
+                # }
+                # $content =~ s/package (.*) is( *)\n/--HOST_TEST_BEGIN\n$to_insert\n--HOST_TEST_END\n\npackage $1 is\n/;
+                # print DT, $content;
+                # close DT;
+                # @withs = ();
 
-			$modded = 1;
+                $modded = 1;
 
-		}
+            }
 
-		# close $fh;
+            # close $fh;
 
-		# DATA_TYPE END
+            # DATA_TYPE END
 
-		# PORT_TYPE BEGIN
+            # PORT_TYPE BEGIN
 
-		if ($content =~ m/\n *package (.*?) is new Port_Type(\_Gen)? \((.*)\n(.*)\n(.*);/) {
+            if ($content =~ m/\n *package (.*?) is new Port_Type(\_Gen)? \((.*)\n(.*)\n(.*);/) {
 
-			# while ($content =~ m/\n( *)package PT is new Port_Type \((.*)\n(.*)\n(.*);/g) {
-				my $PTC_line = $3;
-				my $Ident_line = $4;
-				my $Type_line = $5;
+                # while ($content =~ m/\n( *)package PT is new Port_Type \((.*)\n(.*)\n(.*);/g) {
+                    my $PTC_line = $3;
+                    my $Ident_line = $4;
+                    my $Type_line = $5;
 
-				$PTC_line =~ /T_PTC_Name\'\(\"(.*?)\"/;
-				my $PTC = $1;
+                    $PTC_line =~ /T_PTC_Name\'\(\"(.*?)\"/;
+                    my $PTC = $1;
 
-				$Ident_line =~ /T_Identifier\'\(\"(.*?)\"/;
-				my $Ident = $1;
+                    $Ident_line =~ /T_Identifier\'\(\"(.*?)\"/;
+                    my $Ident = $1;
 
-				my $Type;
-				# if ($Type_line =~ /g_Data_Package => DT\)/i){
-				# 	# $new_package_name =~ /Manager\.(.*)/i;
-				# 	# $dt_package_name = $1;
-				# 	$type_prefix = original_package_name;
-				# 	$dt_package_name = $new_package_name;
-				# 	push(@withs, $new_package_name);
-				# 	# print "$dt_package_name"; <STDIN>;
-				# }
-				# else {
-					$Type_line =~ /g_Data_Package => (.*?)( ?)\)/i;
-					$Type = $1;
-					if ($Type =~ /(.*)\.(.*)\.(.*)/) {
-						$dt_package_name = $3;
-						$type_prefix = "Manager." . $2 . "_";
-					}
-					else {
-						if ($Type =~ /(.*)\.(.*)/) {
-							$dt_package_name = $2;
-							$type_prefix = "Manager." . $1 . "_";
-						}
-						else {
-							$Type =~ /(.*)/;
-							$dt_package_name = $1;
-							$type_prefix = "Manager." . $original_package_name . "_";
-						}
-					}
+                    my $Type;
+                    # if ($Type_line =~ /g_Data_Package => DT\)/i){
+                    # 	# $new_package_name =~ /Manager\.(.*)/i;
+                    # 	# $dt_package_name = $1;
+                    # 	$type_prefix = original_package_name;
+                    # 	$dt_package_name = $new_package_name;
+                    # 	push(@withs, $new_package_name);
+                    # 	# print "$dt_package_name"; <STDIN>;
+                    # }
+                    # else {
+                        $Type_line =~ /g_Data_Package => (.*?)( ?)\)/i;
+                        $Type = $1;
+                        if ($Type =~ /(.*)\.(.*)\.(.*)/) {
+                            $dt_package_name = $3;
+                            $type_prefix = "Manager." . $2 . "_";
+                        }
+                        else {
+                            if ($Type =~ /(.*)\.(.*)/) {
+                                $dt_package_name = $2;
+                                $type_prefix = "Manager." . $1 . "_";
+                            }
+                            else {
+                                $Type =~ /(.*)/;
+                                $dt_package_name = $1;
+                                $type_prefix = "Manager." . $original_package_name . "_";
+                            }
+                        }
 
-				# }
+                    # }
 
-					# $content =~ m/package (Manager\.)?(.*) is/;
-					# $package_name = $2;
+                        # $content =~ m/package (Manager\.)?(.*) is/;
+                        # $package_name = $2;
 
-					$new_pt_package_name = $original_package_name . "_PT";
+                        $new_pt_package_name = $original_package_name . "_PT";
 
-					# if (!($new_file ~~ @new_files)){
+                        # if (!($new_file ~~ @new_files)){
 
-						# creating new files
+                            # creating new files
 
-						my $new_file = lc "Manager" . $dr . $new_pt_package_name;
-						# mkdir "Port_Type_Instances";
-						copy("templates/manager-port_type_gen.ads","n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
-						copy("templates/manager-port_type_gen.adb","n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
-						addFileToList("n:/Stubs/", "manager$dr$new_pt_package_name", "spec", \@g_generated_sources);
-						addFileToList("n:/Stubs/", "manager$dr$new_pt_package_name", "body", \@g_generated_sources);
-						print LOG "Manager\.$new_pt_package_name has been created\n";
-						$portTypeCount++;
+                            my $new_file = lc "Manager" . $dr . $new_pt_package_name;
+                            # mkdir "Port_Type_Instances";
+                            copy("templates/manager-port_type_gen.ads","n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
+                            copy("templates/manager-port_type_gen.adb","n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
+                            addFileToList("n:/Stubs/", "manager$dr$new_pt_package_name", "spec", \@g_generated_sources);
+                            addFileToList("n:/Stubs/", "manager$dr$new_pt_package_name", "body", \@g_generated_sources);
+                            print LOG "Manager\.$new_pt_package_name has been created\n";
+                            $portTypeCount++;
 
-						# editing the new ada spec file
-						open(DT, "<n:/Stubs/$new_file.ads") or die "error opening n:/Stubs/$new_file.ads";
-						@g_lines = <DT>;
-						close DT;
-						open (DT, ">n:/Stubs/$new_file.ads");
-						foreach (@g_lines) {
-							s/Manager.Port_Type_Gen.ads/$new_file.ads/;
-							s/INSTANCE_NAME/$new_pt_package_name/;
+                            # editing the new ada spec file
+                            open(DT, "<n:/Stubs/$new_file.ads") or die "error opening n:/Stubs/$new_file.ads";
+                            @g_lines = <DT>;
+                            close DT;
+                            open (DT, ">n:/Stubs/$new_file.ads");
+                            foreach (@g_lines) {
+                                s/Manager.Port_Type_Gen.ads/$new_file.ads/;
+                                s/INSTANCE_NAME/$new_pt_package_name/;
 
-							s/with DATA_TYPE_INSTANCE;/with $type_prefix$dt_package_name;\nwith Types;/;
-							# s/with DATA_TYPE_INSTANCE;/with $Type;\nwith Types;/;
+                                s/with DATA_TYPE_INSTANCE;/with $type_prefix$dt_package_name;\nwith Types;/;
+                                # s/with DATA_TYPE_INSTANCE;/with $Type;\nwith Types;/;
 
-							s/renames DATA_TYPE_INSTANCE/renames $type_prefix$dt_package_name/;
-							# s/renames DATA_TYPE_INSTANCE/renames $Type/;
+                                s/renames DATA_TYPE_INSTANCE/renames $type_prefix$dt_package_name/;
+                                # s/renames DATA_TYPE_INSTANCE/renames $Type/;
 
-							s/G_NAME_PARAMETERS/new Types.T_PTC_Name'\("$PTC"\)/;
-							s/G_IDENTIFIER_PARAMETERS/new Types.T_Identifier'\("$Ident"\)/;
-							print DT;
-						}
-						close DT;
-						open(DT, "<n:/Stubs/$new_file.adb") or die "error opening n:/Stubs/$new_file.adb";
-						@g_lines = <DT>;
-						close DT;
-						open (DT, ">n:/Stubs/$new_file.adb");
-						foreach (@g_lines) {
-							s/INSTANCE_NAME/$new_pt_package_name/;
-							print DT;
-						}
-						close DT;
-					# }
-				# }
+                                s/G_NAME_PARAMETERS/new Types.T_PTC_Name'\("$PTC"\)/;
+                                s/G_IDENTIFIER_PARAMETERS/new Types.T_Identifier'\("$Ident"\)/;
+                                print DT;
+                            }
+                            close DT;
+                            open(DT, "<n:/Stubs/$new_file.adb") or die "error opening n:/Stubs/$new_file.adb";
+                            @g_lines = <DT>;
+                            close DT;
+                            open (DT, ">n:/Stubs/$new_file.adb");
+                            foreach (@g_lines) {
+                                s/INSTANCE_NAME/$new_pt_package_name/;
+                                print DT;
+                            }
+                            close DT;
+                        # }
+                    # }
 
-				# editing the original file
-				# open(DT, "<$file") or die "error opening $file";
-				# @g_lines = <DT>;
-				# close DT;
-				# open (DT, ">$file");
-				# foreach (@g_lines) {
-				# $content =~	s/^([^-])*pragma Elaborate_All\s*\(Port_Type\)/$1--pragma Elaborate_All(Port_Type)/;
-				# $content =~	s/^( *)package (.*) is new Port_Type(.*),/--HOST_TEST_BEGIN\npackage $2 renames Manager.$new_package_name;\n--package $2 is new Port_Type$3,/g;
-				# $content =~	s/ g_Identifier/--g_Identifier/g;
-				# $content =~	s/ g_Data_Package => (.*)\);/--g_Data_Package => $1\);\n--HOST_TEST_END/g;
-					# print DT;
-				# }
+                    # editing the original file
+                    # open(DT, "<$file") or die "error opening $file";
+                    # @g_lines = <DT>;
+                    # close DT;
+                    # open (DT, ">$file");
+                    # foreach (@g_lines) {
+                    # $content =~	s/^([^-])*pragma Elaborate_All\s*\(Port_Type\)/$1--pragma Elaborate_All(Port_Type)/;
+                    # $content =~	s/^( *)package (.*) is new Port_Type(.*),/--HOST_TEST_BEGIN\npackage $2 renames Manager.$new_package_name;\n--package $2 is new Port_Type$3,/g;
+                    # $content =~	s/ g_Identifier/--g_Identifier/g;
+                    # $content =~	s/ g_Data_Package => (.*)\);/--g_Data_Package => $1\);\n--HOST_TEST_END/g;
+                        # print DT;
+                    # }
 
-				# close DT;
+                    # close DT;
 
-				push(@withs, $new_pt_package_name);
-			
+                    push(@withs, $new_pt_package_name);
+                
 
-			# open(DT, "<$file") or die "error opening $file";
-			# @g_lines = <DT>;
-			# close DT;
-			# open (DT, ">$file");
-			# foreach (@g_lines) {
-			# 	foreach $with (@withs) {
-			# 		s/with (.*);/with $1;\nwith Manager.$with;/;
-			# 	}
-			# 	s/with Port_Type;/--with Port_Type;/;
-			# 	print DT;
-			# }
-			# close DT;
-			# @withs = ();
+                # open(DT, "<$file") or die "error opening $file";
+                # @g_lines = <DT>;
+                # close DT;
+                # open (DT, ">$file");
+                # foreach (@g_lines) {
+                # 	foreach $with (@withs) {
+                # 		s/with (.*);/with $1;\nwith Manager.$with;/;
+                # 	}
+                # 	s/with Port_Type;/--with Port_Type;/;
+                # 	print DT;
+                # }
+                # close DT;
+                # @withs = ();
 
-			$modded = 1;
-		}
+                $modded = 1;
+            }
 
-		# close $fh;
+            # close $fh;
 
-		# PORT_TYPE END
+            # PORT_TYPE END
 
-		# Generic_Operator BEGIN
+            # Generic_Operator BEGIN
 
-		if ($content =~ m/is new Generic_Operator([\(|\s]*)/) {
+            if ($content =~ m/is new Generic_Operator([\(|\s]*)/) {
 
-			my $comp_ident;
-			my $comp_name;
-			my $OUtput_pt_ident;
-			my $g_PT_Package;
-			my $constant_value;
+                my $comp_ident;
+                my $comp_name;
+                my $OUtput_pt_ident;
+                my $g_PT_Package;
+                my $constant_value;
 
-			while ($content =~ m/( *)package (.*) is new Generic_Operator([\(|\s]*)\n?(.*)\n(.*)\n(.*)\n(.*)\n(.*)\);/g){
+                while ($content =~ m/( *)package (.*) is new Generic_Operator([\(|\s]*)\n?(.*)\n(.*)\n(.*)\n(.*)\n(.*)\);/g){
 
-				my $package_name = $2;
-				my $comp_ident_line = $4;
-				my $comp_name_line = $5;
-				my $OUtput_pt_ident_line = $6;
-				my $g_PT_Package_line = $7;
-				my $constant_value_line = $8;
+                    my $package_name = $2;
+                    my $comp_ident_line = $4;
+                    my $comp_name_line = $5;
+                    my $OUtput_pt_ident_line = $6;
+                    my $g_PT_Package_line = $7;
+                    my $constant_value_line = $8;
 
-				$comp_ident_line =~ /Component_Identifier( *)=> (.*),/;
-				$comp_ident = $2;
+                    $comp_ident_line =~ /Component_Identifier( *)=> (.*),/;
+                    $comp_ident = $2;
 
-				$comp_name_line =~ /Component_Name( *)=> (.*),/;
-				$comp_name = $2;
+                    $comp_name_line =~ /Component_Name( *)=> (.*),/;
+                    $comp_name = $2;
 
-				$OUtput_pt_ident_line =~ /Output_PT_Identifier( *)=> (.*),/;
-				$OUtput_pt_ident = $2;
+                    $OUtput_pt_ident_line =~ /Output_PT_Identifier( *)=> (.*),/;
+                    $OUtput_pt_ident = $2;
 
-				$g_PT_Package_line =~ /g_PT_Package( *)=> (.*)\.PT,/;
-				if ($2 =~ /Vital\.(.*)/) {
-					$g_PT_Package = $1;
-				}
-				else {
-					$g_PT_Package = $2;
-				}
+                    $g_PT_Package_line =~ /g_PT_Package( *)=> (.*)\.PT,/;
+                    if ($2 =~ /Vital\.(.*)/) {
+                        $g_PT_Package = $1;
+                    }
+                    else {
+                        $g_PT_Package = $2;
+                    }
 
-				$constant_value_line =~ /Constant_Value( *)=> (.*)/;
-				$constant_value = $2;
-				$constant_value =~ /(.*)\.(.*)/;
-				$type_prefix = $1;
+                    $constant_value_line =~ /Constant_Value( *)=> (.*)/;
+                    $constant_value = $2;
+                    $constant_value =~ /(.*)\.(.*)/;
+                    $type_prefix = $1;
 
-				$new_package_name = $package_name . "_GO";
+                    $new_package_name = $package_name . "_GO";
 
-				# creating the new files
+                    # creating the new files
 
-				my $new_file = lc "Manager" . $dr . $new_package_name;
-				# mkdir "Generic_Operator_Instances";
-				copy("templates/manager-generic_operator.ads","n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
-				copy("templates/manager-generic_operator.adb","n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
-				addFileToList("n:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
-				addFileToList("n:/Stubs/", "manager$dr$new_package_name", "body", \@g_generated_sources);
-				print LOG "Manager\.$new_package_name has been created\n";
-				$genericOperatorCount++;
+                    my $new_file = lc "Manager" . $dr . $new_package_name;
+                    # mkdir "Generic_Operator_Instances";
+                    copy("templates/manager-generic_operator.ads","n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
+                    copy("templates/manager-generic_operator.adb","n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
+                    addFileToList("n:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
+                    addFileToList("n:/Stubs/", "manager$dr$new_package_name", "body", \@g_generated_sources);
+                    print LOG "Manager\.$new_package_name has been created\n";
+                    $genericOperatorCount++;
 
-				# editing the new ada spec file
+                    # editing the new ada spec file
 
-				open(DT, "<n:/Stubs/$new_file.ads") or die "error opening $new_file in stubs";
-				@g_lines = <DT>;
-				close DT;
-				open (DT, ">n:/Stubs/$new_file.ads");
-				foreach (@g_lines) {
-					s/Vital.Generic_Operator.ads/Manager-$new_package_name\.ads/;
-					s/INSTANCE_NAME/$new_package_name/;
-					s/COMPONENT_IDENTIFIER_INSTANCE/$comp_ident/;
-					s/COMPONENT_NAME_INSTANCE/$comp_name/;
-					s/OUTPUT_PT_IDENTIFIER_INSTANCE/$OUtput_pt_ident/;
-					s/g_PT_PACKAGE_INSTANCE/Manager.$g_PT_Package\_PT/;
-					s/CONSTANT_VALUE_INSTANCE/$constant_value/;
-					if ($type_prefix =~ /(\w+)/) {
-						s/with TYPE_PREFIX;/with $type_prefix;/
-					}
-					else {
-						s/with TYPE_PREFIX;//;
-					}
-					print DT;
-				}
-				close DT;
+                    open(DT, "<n:/Stubs/$new_file.ads") or die "error opening $new_file in stubs";
+                    @g_lines = <DT>;
+                    close DT;
+                    open (DT, ">n:/Stubs/$new_file.ads");
+                    foreach (@g_lines) {
+                        s/Vital.Generic_Operator.ads/Manager-$new_package_name\.ads/;
+                        s/INSTANCE_NAME/$new_package_name/;
+                        s/COMPONENT_IDENTIFIER_INSTANCE/$comp_ident/;
+                        s/COMPONENT_NAME_INSTANCE/$comp_name/;
+                        s/OUTPUT_PT_IDENTIFIER_INSTANCE/$OUtput_pt_ident/;
+                        s/g_PT_PACKAGE_INSTANCE/Manager.$g_PT_Package\_PT/;
+                        s/CONSTANT_VALUE_INSTANCE/$constant_value/;
+                        if ($type_prefix =~ /(\w+)/) {
+                            s/with TYPE_PREFIX;/with $type_prefix;/
+                        }
+                        else {
+                            s/with TYPE_PREFIX;//;
+                        }
+                        print DT;
+                    }
+                    close DT;
 
-				# editing the new ada body file
-				open(DT, "<n:/Stubs/$new_file.adb") or die "error opening $new_file in stubs";
-				@g_lines = <DT>;
-				close DT;
-				open (DT, ">n:/Stubs/$new_file.adb");
-				foreach (@g_lines) {
-					s/INSTANCE_NAME/$new_package_name/;
-					print DT;
-				}
-				close DT;
-				# editing the original file
-				# open(DT, "<$file") or die "error opening $file";
-				# @g_lines = <DT>;
-				# close DT;
-				# open (DT, ">$file") or die "error opening $file";
-				# foreach (@g_lines) {
-				# 	# print $_ . "\n";
-				# 	if (s/package (.*) is new Generic_Operator(.*)/--HOST_TEST_BEGIN\npackage $1 renames Manager\.$new_package_name;\n--package $1 is new Generic_Operator$2/) {
-				# 		print "MATCH $file";
-				# 	}
-					
-				# 	print DT;
-				# }
-				# close DT;
+                    # editing the new ada body file
+                    open(DT, "<n:/Stubs/$new_file.adb") or die "error opening $new_file in stubs";
+                    @g_lines = <DT>;
+                    close DT;
+                    open (DT, ">n:/Stubs/$new_file.adb");
+                    foreach (@g_lines) {
+                        s/INSTANCE_NAME/$new_package_name/;
+                        print DT;
+                    }
+                    close DT;
+                    # editing the original file
+                    # open(DT, "<$file") or die "error opening $file";
+                    # @g_lines = <DT>;
+                    # close DT;
+                    # open (DT, ">$file") or die "error opening $file";
+                    # foreach (@g_lines) {
+                    # 	# print $_ . "\n";
+                    # 	if (s/package (.*) is new Generic_Operator(.*)/--HOST_TEST_BEGIN\npackage $1 renames Manager\.$new_package_name;\n--package $1 is new Generic_Operator$2/) {
+                    # 		print "MATCH $file";
+                    # 	}
+                        
+                    # 	print DT;
+                    # }
+                    # close DT;
 
-				# close DT;
+                    # close DT;
 
-				push(@withs, $new_package_name);
-			}
+                    push(@withs, $new_package_name);
+                }
 
-			# open(DT, "<$file") or die "error opening $file";
-			# @g_lines = <DT>;
-			# close DT;
-			# open (DT, ">$file");
-			# foreach (@g_lines) {
-			# 	s/with Generic_Operator;/--with Generic_Operator;\nwith Manager\.$new_package_name;/;
-			# 	print DT;
-			# }
-			# close DT;
-			# @withs = ();
+                # open(DT, "<$file") or die "error opening $file";
+                # @g_lines = <DT>;
+                # close DT;
+                # open (DT, ">$file");
+                # foreach (@g_lines) {
+                # 	s/with Generic_Operator;/--with Generic_Operator;\nwith Manager\.$new_package_name;/;
+                # 	print DT;
+                # }
+                # close DT;
+                # @withs = ();
 
-			$modded = 1;
-		}
+                $modded = 1;
+            }
+        }
 
 		# close $fh;
 
@@ -1277,6 +1260,8 @@ sub instance_maker {
 		if ($modded == 1) {
 
 			print LOG $original_package_name . " was modified\n";
+            
+            $content = "-- The file has been modified for testing\n" . $content;
 
 			foreach $dt (@dt_package_names) {
 				$content =~ s/( *)package $dt is new(.*)/--HOST_TEST_BEGIN\n$1package $dt renames Manager\.$original_package_name\_$dt;\n$1package $dt\_Original is new $2\n--HOST_TEST_END/;
@@ -1348,8 +1333,6 @@ sub modify_source {
 			@lines = <FH>;
 			close FH;
 
-			open FH, ">$file" or die "error";
-
 			$content = "";
 			foreach $l (@lines) {
 				$content = $content . $l;
@@ -1357,6 +1340,8 @@ sub modify_source {
 
 			$content =~ m/package body (.*) is/;
 			$package = $1;
+
+			open FH, ">$file" or die "error";
 
 			if ($content =~ m/g_CTD_Reference/ and $content !~ m/procedure Elab is/) {
 				$content =~ s/\nbegin/\n--HOST_TEST_BEGIN\nprocedure Elab is\nbegin\n--HOST_TEST_END/s;
@@ -1368,33 +1353,6 @@ sub modify_source {
 
 			close FH;
 
-		}
-		else {
-			open FH, "<$file" or die "error";
-			@lines = <FH>;
-			close FH;
-
-			open FH, ">$file" or die "error";
-
-			$content = "";
-			foreach $l (@lines) {
-				$l =~ s/type (.*) is (.*) private/type $1; -- is $2 private/;
-				$l =~ s/private[^;]/-- private/;
-				$content = $content . $l;
-			}
-
-			# $content =~ m/package body (.*) is/;
-			# $package = $1;
-
-			# if ($content =~ m/g_CTD_Reference/ and $content !~ m/procedure Elab is/) {
-			# 	$content =~ s/\nbegin/\n--HOST_TEST_BEGIN\nprocedure Elab is\nbegin\n--HOST_TEST_END/s;
-			# 	$content =~ s/end $package;/\n--HOST_TEST_BEGIN\nend Elab;\n--HOST_TEST_END\n\nend $package;/i;
-			# 	$number_of_emcs++;
-			# }
-
-			print FH $content;
-
-			close FH;
 		}
 
 	}
@@ -1422,7 +1380,7 @@ sub updateDatabase {
 	}
 	print "\n";
 	system("und -db n:/U500.udb analyze -rescan 2>$workdir/error");
-	system("und -db n:/U500.udb analyze -all 1>$workdir/understand 2>$workdir/error");
+	system("und -db n:/U500.udb analyze -changed 1>$workdir/understand 2>$workdir/error");
 	@udbFile = readFile("$workdir/understand");
 	print @udbFile[$#udbFile];
 }
@@ -1465,7 +1423,7 @@ sub getPackageNameFromRegistryValue {
 	$_[0] =~ m/#dir: (.*)\/\/(.*) #file: (.*?)\.(\d\.)?ad(.)/;
 	my $result = $3;
 	$result =~ tr/-/./;
-	# $result = lc $result;
+	$result = lc $result;
 	return $result;
 }
 
@@ -1475,15 +1433,6 @@ sub getFileNameFromRegistryValue {
 	return $result;
 }
 
-sub getRoleFromLocation {
-	if ($_[0] eq "n:/Stubs/") {
-		return "stub";
-	}
-	else {
-		return "source";
-	}
-}
-
 # **
 # @params
 #  	$_[0] : Package
@@ -1491,21 +1440,10 @@ sub getRoleFromLocation {
 #	$_[2] : Stub / Source
 # 
 # **
-
 sub getFileNameFromPackageName {
 	$result = lc $_[0];
-	if ($_[2] eq "stub") {
-		$result =~ tr/./-/;
-		$result = $result . ".ad" . substr($_[1], 0, 1);
-	}
-	else {
-		if ($_[1] eq "spec") {
-			$result = $result . ".1.ada";
-		}
-		else {
-			$result = $result . ".2.ada"
-		}
-	}
+	$result =~ tr/./-/;
+	$result = $result . ".ad" . substr($_[1], 0, 1);
 	return $result;
 }
 
@@ -1513,11 +1451,12 @@ sub getRegistryValueFromPackageName {
 	my $ext;
 	my $ref_array = $_[2];
 	if ($_[1] eq "spec") {
-		@result = (grep(/#file: $_[0].ads/, @$ref_array), grep(/#file: $_[0].1.ada/, @$ref_array));
+		$ext = "s";
 	}
 	else {
-		@result = (grep(/#file: $_[0].adb/, @$ref_array), grep(/#file: $_[0].2.ada/, @$ref_array));
+		$ext = "b";
 	}
+	@result = grep {/#file: $_[0].ad$ext/} @$ref_array;
 	if (@result == ()) {
 		# print "fatal error: cannot find: $_[0].$_[1]";
 		# die;
@@ -1530,7 +1469,7 @@ sub getRegistryValueFromPackageName {
 }
 
 sub getPackageNameFromFileName {
-	$_[0] =~ m/(.*?)\.(\d\.)?ad(.)/;
+	$_[0] =~ m/(.*)\.ad./;
 	$result = $1;
 	$result =~ tr/-/./;
 	return $result;
@@ -1546,7 +1485,7 @@ sub generateStubBodies {
 
 			$progress = int($idx / $c * 100);
 
-			$body = "n:/Stubs/" . getFileNameFromPackageName(getPackageNameFromRegistryValue($stub) , "body", "stub");
+			$body = "n:/Stubs/" . getFileNameFromPackageName(getPackageNameFromRegistryValue($stub) , "body");
 			# $spec = "n:/Stubs/" . getFileNameFromRegistryValue($stub);
 
 			if (!(-e $body)) {
@@ -1587,31 +1526,32 @@ sub main {
 	open STAT, ">$workdir/stat";
 	close STAT;
 
-	# open log
+	# open log files
 	open LOG, ">$workdir/log";
+    open PACKAGELIST, ">$workdir/packageslist";
 
 	# read available sources from clearcase
 	print "Reading CC libraries: ... ";
 	@CC_list = scan($CC_Location);
-
 	print "Done.\n";
 	readExceptions();
 
 	# create list of sources to compile
+    # ???
 	@g_unmodified_sources = scan("n:/Source/");
 
 	# copy sources to compile
 	print "Copying sources... ";
 	if ($switches[0] == 1) {
+        # copy all ada files
 		copydir("n:/temp/", "n:/Source/", "all", 0);
 	}
 	else {
+        # replace the old ones with the newer ones
 		print "copyDiff";
 		copyDiff("n:/temp/", "n:/Source/", "all", 0);
 	}
 	print "Done.\n";
-
-	<STDIN>;
 
 	# insert elab
 	print "Modifying sources... ";
@@ -1636,7 +1576,6 @@ sub main {
 	my @temporalListOfSources = @g_unmodified_sources;
 	foreach $source (@temporalListOfSources) {
 		gatherSpecFiles(getPackageNameFromRegistryValue($source), getTypeFromRegistryValue($source));
-
 	}
 
 	updateDatabase();
@@ -1644,9 +1583,15 @@ sub main {
 
 	foreach $source (@temporalListOfSources) {
 		if (getTypeFromRegistryValue($source) eq "body") {
+            
+            # checkPoint($source);
+            
 			@subunits = getSubunits(getPackageNameFromRegistryValue($source));
 			foreach $s (@subunits) {
-				addFile($s, "body", $dir);
+                if (not "$s.body" ~~ @packagesList) {
+                    checkPoint($s);
+                    addFile($s, "body", "n:/Additional_Files/");
+                }
 			}
 		}
 	}
@@ -1668,7 +1613,7 @@ sub main {
 	instance_maker();
 	print "Done. (DT: $dataTypeCount; PT: $portTypeCount; GO: $genericOperatorCount)\n";
 
-	# $switches[1] = 0;
+	# $mode = 0;
 	
 	print "Copy custom modifications to the stubs folder! Press ENTER when done"; <STDIN>;
 
@@ -1705,10 +1650,7 @@ sub init {
 	$debug = 0;
 	setMode();
 
-	# start progressbar thread
-	$thr = threads->create('showProgress');
-
-	print "ClearCase location: ";
+	print "\nClearCase location: ";
 	$CC_Location = <STDIN>;
 	$CC_Location =~ m/(.*)\n/;
 	$CC_Location = $1;
@@ -1716,8 +1658,10 @@ sub init {
 		$CC_Location = $CC_Location . "\\";
 	}
 	$CC_Location =~ s/\\/\//g;
-
-	print $CC_Location;
+    
+   	# start progressbar thread
+	$thr = threads->create('showProgress');
+	print "\n$CC_Location";
 }
 
 # share variables between threads
