@@ -222,7 +222,9 @@ sub getSourceFileList {
 	my $result = "";
 
 	foreach my $file (@main::files_to_copy) {
-		$result = $result . "COMMENT ****      - " . $file . "\n";
+        if (-e $main::filesloc{$file} . "/" . $file) {
+            $result = $result . "COMMENT ****      - " . $file . "\n";
+        }
 	}
 	$result = $result . "COMMENT ****";
 
@@ -250,56 +252,82 @@ sub getWithList {
 	return $result;
 }
 
-# return 1 if there is call to server package
+# return 1 if there is an undiscovered call to server package
 
 sub rec_func {
 	my $result = 0;
-	my @cfs = $_[0]->ent->refs("Ada Call");
-	print "\t\t" . $_[0]->ent->longname() . "\n";
-	foreach my $cf (@cfs) {
-		print "\t\t\t" . $cf->ent->longname() . "\n";
-		my $called_package = $cf->ent->parent->longname();
-		if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
-			return 1;
-		}
-		else {
-			if ($called_package eq $main::packages[0]) {
-				$result = rec_func($cf);
-			}
-		}
-	}
-	return $result;
+    
+	my @cfs = $_[0]->refs("Ada Call ~Access");
+	print "\t\t" . $_[0]->longname() . "\n";
+	
+    
+    # foreach my $cf (@cfs) {
+		# print "\t\t\t" . $cf->ent->longname() . "\n";
+		# my $called_package = $cf->ent->parent->longname();
+		# if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
+			# return 1;
+		# }
+		# else {
+			# if ($called_package eq $main::packages[0]) {
+				# $result = rec_func($cf);
+			# }
+		# }
+	# }
+    
+    my $refseen = $_[1];
+    
+    foreach my $cf (@cfs) {
+    
+        my $called_package = $cf->ent->parent->longname();
+        # if there is a call to server --> yeeeyy, store it
+        if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
+            return 1;
+        }
+        else {
+            # if we stayed in client follow the trace
+            if ($called_package eq $main::packages[0] and not $cf->ent->longname() ~~ @$refseen) {
+            
+                # mark client subprogram visited
+                push(@$refseen, $cf->ent->longname());
+                $result = rec_func($cf, $refseen);
+            }
+        }
+    }
+    
+    return $result;
 }
 
 # case of MT: list all the subprograms
-# case of IT: list interface subprograms which contains calls to server packages
+# case of IT: list subprograms which contains calls to server packages
 
 sub subprogram_entities {
 	my @result = ();
+    my @visited_subprograms = ();
 	my @p = $main::db->lookup($main::packages[0], "Ada Package");
 	if ($main::test_type eq "MT"){
-		my @s = $p[0]->ents("Ada Declare", "Ada Procedure, Ada Function");
+		my @s = $p[0]->ents("Ada Declare Body", "Ada Procedure, Ada Function");
 		@result = @s;
 	}
 	else {
-		my @s = $p[0]->ents("Ada Declare Spec", "Ada Procedure ~Local, Ada Function ~Local");
+        # my @s = $p[0]->ents("Ada Declare Spec", "Ada Procedure ~Local, Ada Function ~Local");
+		my @s = $p[0]->ents("Ada Declare Body", "Ada Procedure, Ada Function");
 		foreach my $s (@s) {
 			print $s->longname() . "\n";
-			my @called_functions = $s->refs("Ada Call");
-			foreach my $cf (@called_functions) {
-				my $called_package = $cf->ent->parent->longname();
-				print "\t" . $called_package . "\n";
-				if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
-					push(@result, $s);
-					last;
-				}
-				if ($called_package eq $main::packages[0]) {
-					if (rec_func($cf) == 1) {
+			# my @called_functions = $s->refs("Ada Call ~Access");
+			# foreach my $cf (@called_functions) {
+				# my $called_package = $cf->ent->parent->longname();
+				# print "\t" . $called_package . "\n";
+				# if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
+					# push(@result, $s);
+					# last;
+				# }
+				# if ($called_package eq $main::packages[0]) {
+					if (rec_func($s, \@visited_subprograms) == 1) {
 						push(@result, $s);
-						last;
+						# last;
 					}
-				}
-			}
+				# }
+			# }
 		}
 	}
 	return @result;
@@ -380,7 +408,9 @@ sub getStubs {
 				}
 			}
 		}
-		$result =~ s/(.*),/$1\)/s;
+		if (not $result =~ s/(.*),/$1\)/s) {
+            $result = $result . " )";
+        }
 		if ($s->ent->type() ne "") {
 			$result = $result . " Stub_" . $s->ent->name();
 			push(@$reference, $s->ent);
@@ -410,7 +440,7 @@ sub setStubVars {
 		my $keyword = getKeyWord($typeEnt);
 		addString(\$result, "\n                -- $keyword " . getStubVariableName($param) . ",\n                -- &   init =");
 		getSubItems(\$result, $typeEnt, 1, 0);
-		addString(\$result, ",\n                -- &   ev ==\n");
+		addString(\$result, ",\n                -- &   ev   ==\n");
 	}
 
 	if (@$reference == ()) {
@@ -452,16 +482,29 @@ sub getKeyWord {
 
 sub setGlobals  {
 	my @globals = ();
-	my @globals = $_[0]->ents("Ada Use", "Ada Object");
+	my @globals_set = $_[0]->ents("Ada Set", "Ada Object");
+	my @globals_use = $_[0]->ents("Ada Use", "Ada Object");
 	my $result = "";
-	foreach my $g (@globals) {
+	foreach my $g (@globals_set) {
 		if ($g->name() =~ m/^g_/i) {
+			my $typeEnt = $g->ref("Ada Typed")->ent;
+			my $keyword = getKeyWord($typeEnt);
+			
+			addString(\$result, "\n                -- $keyword " . $g->name() . ",\n                -- &   init ==,\n                -- &   ev   =");
+			getSubItems(\$result, $g->ref("Ada Typed")->ent, 1, 0);
+			addString(\$result, "\n");
+
+		}
+	}
+	foreach my $g (@globals_use) {
+		my $g_name = $g->name();
+		if ($g->name() =~ m/^g_/i and $result !~ m/$g_name/) {
 			my $typeEnt = $g->ref("Ada Typed")->ent;
 			my $keyword = getKeyWord($typeEnt);
 			
 			addString(\$result, "\n                -- $keyword " . $g->name() . ",\n                -- &   init =");
 			getSubItems(\$result, $g->ref("Ada Typed")->ent, 1, 0);
-			addString(\$result, ",\n                -- &   ev = init\n");
+			addString(\$result, ",\n                -- &   ev   = init\n");
 
 		}
 	}
@@ -482,7 +525,7 @@ sub getSubprogramList {
 
 sub parameters {
 
-	my @params = $_[0]->ents("Ada Declare Spec", "Ada Parameter");
+	my @params = $_[0]->ents("Ada Declare", "Ada Parameter");
 
 	my $result = "";
 
@@ -496,7 +539,7 @@ sub parameters {
 }
 
 sub setSignVars {
-	my @params = $_[0]->ents("Ada Declare Spec", "Ada Parameter");
+	my @params = $_[0]->ents("Ada Declare", "Ada Parameter");
 
 	my $result = "";
 
@@ -510,12 +553,12 @@ sub setSignVars {
 			# print $param->ref("Ada Typed")->ent->name() . "\n";
 			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- &   init =");
 			getSubItems(\$result, $typeEnt, 1, 0);
-			addString(\$result, ",\n                -- &   ev ==\n");
+			addString(\$result, ",\n                -- &   ev   ==\n");
 		}
 		if ($mode eq "out ") {
 			# print "OUT\n";
 			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- &   init ==");
-			addString(\$result, ",\n                -- &   ev = ");
+			addString(\$result, ",\n                -- &   ev   = ");
 			getSubItems(\$result, $typeEnt, 1, 0);
 			addString(\$result, "\n");
 		}
@@ -523,7 +566,7 @@ sub setSignVars {
 			# print "INOUT\n";
 			addString(\$result, "\n                -- $keyword " . $param->name() . ",\n                -- &   init =");
 			getSubItems(\$result, $typeEnt, 1, 0);
-			addString(\$result, ",\n                -- &   ev = \n");
+			addString(\$result, ",\n                -- &   ev   = \n");
 		}
 	}
 
@@ -745,21 +788,23 @@ sub rtpmaker {
 
 	print "Adding files to RTRT project:\n";
 	foreach my $file (@main::files_to_copy) {
-		print "\t$file\n";
-		my @act = @part_two;
-		foreach my $line (@act) {
-			$line =~ s/SOURCE/$file/;
-			$line =~ s/QUID/$id/;
-			if ($file =~ m/ads/) {
-				$line =~ s/INTEGRATED/true/;
-			}
-			else {
-				$line =~ s/INTEGRATED/false/;
-			}
-			
-		}
-		$id++;
-		push(@final, @act);
+        if (-e $main::filesloc{$file} . "/" . $file) {
+            print "\t$file\n";
+            my @act = @part_two;
+            foreach my $line (@act) {
+                $line =~ s/SOURCE/$file/;
+                $line =~ s/QUID/$id/;
+                if ($file =~ m/ads/) {
+                    $line =~ s/INTEGRATED/true/;
+                }
+                else {
+                    $line =~ s/INTEGRATED/false/;
+                }
+                
+            }
+            $id++;
+            push(@final, @act);
+        }
 	}
 
 	foreach my $line (@part_three) {
@@ -836,6 +881,46 @@ sub modify_source {
 
 }
 
+sub getRegistryValueForFile {
+    my $to_find = $_[0];
+    my @list = grep(/#file: $to_find/i, @main::sources);
+    return $list[0];
+}
+
+sub update {
+    # renaming all the previous sources to .bak and copying the new ones
+    my @list_of_old_files = scan("t:/Test_Environments/$main::test_type\_$main::packageu/Source/");
+    foreach my $old_file (@list_of_old_files) {
+        $old_file =~ m/#dir: (.*)\/\/(.*) #file: (.*)/;
+        rename "$1/$2/$3", "$1/$2/$3.bak";
+        
+        my $reg_value = getRegistryValueForFile($3);
+        $reg_value =~ m/#dir: (.*)\/\/(.*) #file: (.*)/;
+        copy("$1/$2/$3", "t:/Test_Environments/$main::test_type\_$main::packageu/Source/$3");
+        
+        push(@main::files_to_copy, $3);
+    }
+    
+    # editing the .ptu file
+	open FH, "<t:/Test_Environments/$main::test_type\_$main::packageu/$main::test_type\_$main::packageu.ptu" or die "error";
+	my @lines = <FH>;
+	close FH;
+    
+    my $result = "";
+    
+    foreach my $line (@lines) {
+        $line =~ s/Author \(.*\)/Author ($main::initials)/;
+        $line =~ s/PTU last run on software release \(.*\)/PTU last run on software release ($main::release)/;
+        $line =~ s/PTU last mod.* \(.*\)/PTU last modification date ($main::date)/;
+        $line =~ s/PTU testing environment version: .*/PTU testing environment version: $main::environmentversion/;
+        $result = $result . $line;
+    }
+    
+    open FH, ">t:/Test_Environments/$main::test_type\_$main::packageu/$main::test_type\_$main::packageu.ptu" or die "error";
+    print FH $result;
+    close FH;
+}
+
 open FH, "<environment.cfg";
 my @lines = <FH>;
 close FH;
@@ -902,27 +987,17 @@ foreach my $package (@packages) {
 
 }
 
-my %filesloc;
-
-readExceptions();
-
 our @sources = (scan("t:/Source/"), scan("t:/Additional_Files/"));
 
-foreach my $f (@files_to_copy) {
-	my $idx = 0;
-	while ($sources[$idx] !~ m/$f/ and $idx <= $#sources) {
-		$idx++;
-	}
-	print $sources[$idx]. "\n";
-	$sources[$idx] =~ m/#dir: (.*)\/\/(.*) #file: (.*)/;
-	print "$1/$2$f". "\n";
-	copy("$1/$2$f", "t:/Test_Environments/$test_type\_$packageu/Source/$f");
-	my $loc = "$1/$2";
-	$loc =~ tr/\//\\/;
-	$filesloc{$f} = $loc;
+my $update = $ARGV[0];
+
+if ($update == 1) {
+    update();
 }
 
-system("\"c:/Program Files/Rational/TestRealTime/bin/intel/win32/attolalk.exe\" t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu.alk t:/Stubs");
+# ---------------------
+# creating and modifying .alk file
+system("\"c:/Program Files (x86)/Rational/TestRealTime/bin/intel/win32/attolalk.exe\" t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu.alk t:/Stubs");
 
 open FH, "<t:/Test_Environments/$test_type\_$packageu/$test_type\_$packageu.alk";
 @lines = <FH>;
@@ -935,9 +1010,9 @@ print "Modifying alk file\n";
 my @mod = ();
 foreach my $l (@lines) {
 	foreach my $file (@files_to_copy) {
-		if ($l =~ m/$file/) {
+		if ($l =~ m/\\$file/) {
 			my $temp = $l;
-			my $loc = $filesloc{$file};
+			my $loc = $main::filesloc{$file};
 			$temp =~ s/t:\\Stubs\\/t:\\Test_Environments\\$test_type\_$packageu\\Source\\/;
 			print "\t$l\n";
 			push(@mod, $temp);
@@ -952,11 +1027,39 @@ print FH "\n\n";
 print FH @mod;
 
 close FH;
+# ---------------------
 
-ptumaker();
+if ($update != 1) {
 
-rtpmaker();
+    # -------------------
+    # copy source files under Source
+    our %filesloc;
+
+    readExceptions();
+
+    foreach my $f (@files_to_copy) {
+        my $idx = 0;
+        while ($sources[$idx] !~ m/$f/ and $idx <= $#sources) {
+            $idx++;
+        }
+        print $sources[$idx]. "\n";
+        $sources[$idx] =~ m/#dir: (.*)\/\/(.*) #file: (.*)/;
+        print "$1/$2$f". "\n";
+        copy("$1/$2$f", "t:/Test_Environments/$test_type\_$packageu/Source/$f");
+        my $loc = "$1/$2";
+        $loc =~ tr/\//\\/;
+        $main::filesloc{$f} = $loc;
+    }
+    # ---------------------
+
+    ptumaker();
+
+    rtpmaker();
+
+}
 
 if ($test_type eq "MT") {
 	modify_source();
 }
+
+print "Press ENTER to exit.."; <STDIN>;
