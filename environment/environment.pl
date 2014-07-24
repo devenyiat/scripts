@@ -253,26 +253,14 @@ sub getWithList {
 }
 
 # return 1 if there is an undiscovered call to server package
+# @param1: subprogram entity
+# @param2: seen client subprograms
 
-sub rec_func {
+sub checkGivenSubprogram {
 	my $result = 0;
     
 	my @cfs = $_[0]->refs("Ada Call ~Access");
 	print "\t\t" . $_[0]->longname() . "\n";
-	
-    
-    # foreach my $cf (@cfs) {
-		# print "\t\t\t" . $cf->ent->longname() . "\n";
-		# my $called_package = $cf->ent->parent->longname();
-		# if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
-			# return 1;
-		# }
-		# else {
-			# if ($called_package eq $main::packages[0]) {
-				# $result = rec_func($cf);
-			# }
-		# }
-	# }
     
     my $refseen = $_[1];
     
@@ -281,15 +269,16 @@ sub rec_func {
         my $called_package = $cf->ent->parent->longname();
         # if there is a call to server --> yeeeyy, store it
         if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
-            return 1;
+            $result = 1;
         }
         else {
+            
             # if we stayed in client follow the trace
             if ($called_package eq $main::packages[0] and not $cf->ent->longname() ~~ @$refseen) {
             
                 # mark client subprogram visited
                 push(@$refseen, $cf->ent->longname());
-                $result = rec_func($cf, $refseen);
+                $result = $result + checkGivenSubprogram($cf->ent, $refseen);
             }
         }
     }
@@ -309,60 +298,15 @@ sub subprogram_entities {
 		@result = @s;
 	}
 	else {
-        # my @s = $p[0]->ents("Ada Declare Spec", "Ada Procedure ~Local, Ada Function ~Local");
-		my @s = $p[0]->ents("Ada Declare Body", "Ada Procedure, Ada Function");
+        # interface subprograms
+        my @s = $p[0]->ents("Ada Declare Spec", "Ada Procedure, Ada Function");
+        # non-interface subprograms
+        @s = (@s, $p[0]->ents("Ada Declare Body", "Ada Procedure Local, Ada Function Local"));
 		foreach my $s (@s) {
 			print $s->longname() . "\n";
-			# my @called_functions = $s->refs("Ada Call ~Access");
-			# foreach my $cf (@called_functions) {
-				# my $called_package = $cf->ent->parent->longname();
-				# print "\t" . $called_package . "\n";
-				# if ($called_package ~~ @main::packages and $called_package ne $main::packages[0]) {
-					# push(@result, $s);
-					# last;
-				# }
-				# if ($called_package eq $main::packages[0]) {
-					if (rec_func($s, \@visited_subprograms) == 1) {
-						push(@result, $s);
-						# last;
-					}
-				# }
-			# }
-		}
-	}
-	return @result;
-}
-
-sub getStubs_rec {
-	my @result = ();
-	my @called_functions = $_[0]->refs("Ada Call ~Access");
-	foreach my $cf (@called_functions) {
-		my $called_package = $cf->ent->parent->longname();
-		if (not $called_package ~~ @main::packages and not $called_package ~~ @g_exceptions) {
-			push(@result, $cf);
-			if (not $called_package ~~ @definestubs) {
-				push(@definestubs, $called_package);
-			}
-		}
-		else {
-			if (not $cf->ent->longname() ~~ @getStubs::seensubs) {
-				push(@getStubs::seensubs, $cf->ent->longname());
-				push(@result, getStubs_rec($cf->ent));
-			}
-		}
-	}
-	return @result;
-}
-
-sub getUniqueStubs {
-	my @result = ();
-	my @stubs = ();
-	@stubs = getStubs_rec($_[0]);
-	my @uniqueStubs = ();
-	foreach my $s (@stubs) {
-		if (not $s->ent->longname() ~~ @uniqueStubs) {
-			push(@uniqueStubs, $s->ent->longname());
-			push(@result, $s);
+            if (not $s->longname() ~~ @visited_subprograms and checkGivenSubprogram($s, \@visited_subprograms) > 0) {
+                push(@result, $s);
+            }
 		}
 	}
 	return @result;
@@ -382,42 +326,52 @@ sub getStubVariableName {
 	return $result;
 }
 
+# @param1: subprogram entity
+# @param2: result
 sub getStubs {
-
-	our @seensubs = ();
-
-	my $result = "";
-	my $reference = $_[1];
-	my @uniqueStubs = getUniqueStubs($_[0]);
-	foreach my $s (@uniqueStubs) {
-		$result = $result . "\n                -- STUB " . $s->ent->longname() . " (";
-		my @params = $s->ent->ents("Ada Declare", "Ada Parameter");
-		foreach my $p (@params) {
-			$result = $result . "\n                -- &   " . $p->name() . " => ";
-			if ($p->type() =~ /in out /) {
-				$result = $result . "(in => , out => " . getStubVariableName($p) . "),";
-				push(@$reference, $p);
-			}
-			else {
-				if ($p->type() =~ /out /) {
-					$result = $result . "(out => " . getStubVariableName($p) . "),";
-					push(@$reference, $p);
-				}
-				else {
-					$result = $result . "(in => ),";
-				}
-			}
-		}
-		if (not $result =~ s/(.*),/$1\)/s) {
-            $result = $result . " )";
+    
+    my $result_reference = $_[2];
+    my $stub_variables_reference = $_[1];
+    $$result_reference = $$result_reference . "\n                -- begin stubs for " . $_[0]->longname() . "\n";
+    
+    my @called_functions = $_[0]->refs("Ada Call ~Access");
+    foreach my $cf (@called_functions) {
+        my $called_package = $cf->ent->parent->longname();
+        if ($called_package ~~ @main::packages) {
+            getStubs($cf->ent, $stub_variables_reference, $result_reference);
         }
-		if ($s->ent->type() ne "") {
-			$result = $result . " Stub_" . $s->ent->name();
-			push(@$reference, $s->ent);
-		}
-		$result = $result . "\n";
-	}
-	return $result;
+        else { if (not $called_package ~~ @g_exceptions) {
+            $$result_reference = $$result_reference . "\n                -- STUB " . $cf->ent->longname() . " (";
+            my @params = $cf->ent->ents("Ada Declare", "Ada Parameter");
+            foreach my $p (@params) {
+                $$result_reference = $$result_reference . "\n                -- &   " . $p->name() . " => ";
+                if ($p->type() =~ /in out /) {
+                    $$result_reference = $$result_reference . "(in => , out => " . getStubVariableName($p) . "),";
+                    push(@$stub_variables_reference, $p);
+                }
+                else {
+                    if ($p->type() =~ /out /) {
+                        $$result_reference = $$result_reference . "(out => " . getStubVariableName($p) . "),";
+                        push(@$stub_variables_reference, $p);
+                    }
+                    else {
+                        $$result_reference = $$result_reference . "(in => ),";
+                    }
+                }
+            }
+            if (not $$result_reference =~ s/,$/)/) {
+                $$result_reference = $$result_reference . " )";
+            }
+            if ($cf->ent->type() ne "") {
+                $$result_reference = $$result_reference . " Stub_" . $cf->ent->name();
+                push(@$stub_variables_reference, $cf->ent);
+            }
+            $$result_reference = $$result_reference . "\n";
+        } }
+    }
+    
+    $$result_reference = $$result_reference . "\n                -- end stubs for " . $_[0]->longname() . "\n";
+    
 }
 
 sub generateStubDeclaration {
@@ -425,7 +379,7 @@ sub generateStubDeclaration {
 	my $reference = $_[0];
 
 	foreach my $stub (@$reference) {
-		addString(\$result, "        # " . getStubVariableName($stub) . " : " . $stub->ref("Ada Typed")->ent->longname() . ";\n");
+		addString(\$result, "        -- # " . getStubVariableName($stub) . " : " . $stub->ref("Ada Typed")->ent->longname() . ";\n");
 	}
 
 	return $result;
@@ -717,7 +671,8 @@ sub ptumaker {
 		my $var_ret = setRetVar($sub);
 		my $var_globals = setGlobals($sub);
 		my @stubVariables = ();
-		my $stubs_str = getStubs($sub, \@stubVariables);
+		my $stubs_str = "";
+        getStubs($sub, \@stubVariables, \$stubs_str);
 		my $stubVariablesStr = generateStubDeclaration(\@stubVariables);
 		my $stubVarsSetter = setStubVars(\@stubVariables);
 		foreach my $line (@act) {
