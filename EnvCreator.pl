@@ -157,7 +157,6 @@ sub scandirs {
 
 sub copyFile {
 
-	print "buu $_[0]";
 	my $ori = $_[0];
 	
 	my $specRegExp = "(.*)" . $settings{$_[3] . "_spec_ext"};
@@ -745,7 +744,7 @@ sub error_handler {
 		my $regExp2 = "but file \"(.*)" . $settings{$locations{$dir} . "_body_ext"} . "\" was not found";
 		if ($e =~ m/$regExp1/ or $e =~ m/$regExp2/) {
 			my $fileToAdd = $1 . $settings{$locations{$dir} . "_body_ext"};
-			addBodyFile($p, $dir);
+			addBodyFile($fileToAdd, $dir);
 			$status = 1;
 		}
 		
@@ -760,9 +759,9 @@ sub error_handler {
 				$idx++;
 			}
 			$g_lines[$idx] =~ m/with\s*(.*)$generic_unit;/; # print @g_lines; <STDIN>;
-			$packageToAdd = $1 . $generic_unit;
+			$fileToAdd = $1 . $generic_unit . $settings{$locations{$dir} . "_body_ext"};
 
-			addBodyFile($packageToAdd, $dir);
+			addBodyFile($fileToAdd, $dir);
 			$status = 1;
 
 		}
@@ -986,7 +985,6 @@ sub addFileToList {
 sub addFile {
 	my $locOfFileToCopy = selectFile($_[0]);
 	if ($locOfFileToCopy ne "nullPointerException") {
-		print "buuuuuuuu$_[0]";
 		copyFile($_[0], $locOfFileToCopy, $_[1], "source", $locations{$_[1]});
 		if ($_[1] eq "n:/Additional_Files" and $_[2] == 1) {
 			copyFile($_[0], $locOfFileToCopy, "n:/Stubs", "source", "stub");
@@ -1719,6 +1717,8 @@ sub getPackageNameFromFileName {
 #	$_[0] : filename
 #	$_[1] : source / stub
 sub getPackageName {
+
+	print $_[0];
 	
 	my $specRegExp = "(.*)" . $settings{$_[1] . "_spec_ext"};
 	my $bodyRegExp = "(.*)" . $settings{$_[1] . "_body_ext"};
@@ -1739,10 +1739,13 @@ sub getPackageName {
 #	$_[2] : source / stub
 sub convertPackageToFileName {
 	
-	my $regExp = $settings{$_[2] . "_" . "dot_repl"};
+	my $regExp = $settings{$_[2] . "_dot_repl"};
 	$result = $_[0];
 	$result =~ s/\./$regExp/g;
 	$result .= $settings{$_[2] . "_" . $_[1] . "_ext"};
+	if ($settings{$_[2] . "_casing"} eq "lowercase") {
+		$result = lc $result;
+	}
 	return $result;
 	
 }
@@ -1767,7 +1770,7 @@ sub generateStubBodies {
 			# $spec = "n:/Stubs/" . getFileNameFromRegistryValue($stub);
 
 			if (!(-e $body)) {
-				addBodyFile(getPackageName($stub, "stub"), "n:/Stubs");
+				addBodyFile($stub, "n:/Stubs");
 			}
 			if (!(-e $body)) {
 				my @errors = readerror();
@@ -1855,7 +1858,6 @@ sub main {
 			foreach $s (@subunits) {
 				$fileToAdd = convertPackageToFileName($s, "body", "source");
                 if (not $fileList{"source"}{lc $fileToAdd}) {
-                    checkPoint($fileToAdd);
                     addFile($fileToAdd, "n:/Additional_Files", 0);
                 }
 			}
@@ -1992,4 +1994,3 @@ $thr->join();
 
 # TODO!!! 1.3.0
 # Database_Tools.1.adaDatabase_Io.1.ada not found
-# gnatstub -f -t -In:/Stubs/ n:/Stubs/Database_Tools-.ads n:/Stubs/
