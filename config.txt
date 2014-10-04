@@ -1,0 +1,10 @@
+Environment Creator 1.3.x configuration
+
+Stubbing mode (auto, manual, stub everything, stub nothing): <stub nothing>
+Building mode (new, update): <new>
+Purpose of environment (SCV, MT): <MT>
+Extension of spec files (i.e. 1.ada, ads): <1.ada>
+Extension of body files (i.e. 2.ada, adb): <2.ada>
+Dot replacement character (i.e. '.', '-'): <.>
+ClearCase full path: <d:\clearcase\>
+Package list not to stub (in case of auto mode): <exceptions_2oo3.txt>
