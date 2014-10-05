@@ -1,7 +1,7 @@
 Environment Creator 1.3.x configuration
 
 Stubbing mode (auto, manual, stub everything, stub nothing): <stub nothing>
-Building mode (new, update): <new>
+Building mode (new, update): <update>
 Purpose of environment (SCV, MT): <MT>
 Extension of spec files (i.e. 1.ada, ads): <1.ada>
 Extension of body files (i.e. 2.ada, adb): <2.ada>
