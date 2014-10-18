@@ -341,6 +341,9 @@ sub getStubs {
             getStubs($cf->ent, $stub_variables_reference, $result_reference);
         }
         else { if (not $called_package ~~ @g_exceptions) {
+			if (not $called_package ~~ @definestubs) {
+				push(@definestubs, $called_package);
+			}
             $$result_reference = $$result_reference . "\n                -- STUB " . $cf->ent->longname() . " (";
             my @params = $cf->ent->ents("Ada Declare", "Ada Parameter");
             foreach my $p (@params) {
