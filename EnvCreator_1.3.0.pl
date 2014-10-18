@@ -876,6 +876,16 @@ sub printerror {
 	$settings{"is_running"} = $state;
 }
 
+sub printCustomError {
+	my $state = $settings{"is_running"};
+	$settings{"is_running"} = 0;
+	print "\n-----------------------\n\nError occurred during operation, which cannot be automatically fixed:\n\n";
+	print "$_[0]";
+	print "\n-----------------------\n\n";
+	print "\nWaiting for user interaction...\nPress ENTER when error is eliminated..."; <STDIN>;
+	$settings{"is_running"} = $state;
+}
+
 our @neededFiles;
 sub error_handler {
 
@@ -967,331 +977,328 @@ sub error_handler {
 # ****************************
 # createInstances
 # ****************************
-# sub createInstances {
+sub createInstances {
 
-	# my $dr = '-';
+	my $dr = '-';
 
-	# # openStdError();
+	# openStdError();
 	
-	# my @counters = (0, 0, 0);
+	my @counters = (0, 0, 0);
 
-	# foreach my $stub (keys %{$fileList{"stub"}}) {
+	foreach my $stub (keys %{$fileList{"stub"}}) {
 
-		# my $file = $fileList{"stub"}{$stub}{"abs"} . "/" . convertKeyToFileName($stub, "stub");
+		my $file = $fileList{"stub"}{$stub}{"abs"} . "/" . convertKeyToFileName($stub, "stub");
 
-		# open my $fh, '<', $file or die "error opening $file: $!";
-		# my $content = do { local $/; <$fh> };
+		open my $fh, '<', $file or die "error opening $file: $!";
+		my $content = do { local $/; <$fh> };
+		close $fh;
+
+		my $package_name;
+		my $dt_package_name;
+		my $original_package_name;
+		my $new_package_name;
+		my $type_prefix;
+		my @withs = ();
+		my @uses = ();
+		my @dt_package_names = ();
+
+		my $modded = 0;
+
+		$content =~ m/package (Manager\.)?(.*) is/;
+		my $original_package_name_manager = $1;
+		$original_package_name = $2;
+
+		# TODO ez igy nem az igazi, elég lenne a use-okat kigyűjteni
+		while ($content =~ /with (.*);\n(.*\n)?use (.*);/g) {
+			push @uses, "with $1;\n$2use $3;\n";
+		}
+
+		# DATA_TYPE BEGIN
+
+		# if file has not been modified yet
+		if ($content !~ m/-- The file has been modified for testing/) {
+        
+            # if file contains Data_Type instantiation
+            if ($content =~ m/is.*?new.*?Data_Type/m){
+
+                while ($content =~ m/package\s+(\S*)\s+is\s+new\s+Data_Type(.*?)\);/gm) {
+				
+					$counters[0]++;
+				
+                    # get package name
+                    $package_name = $1;
+					my $dataTypeInstanceParameters = $2;
+
+                    # creating new files
+                    $new_package_name = $original_package_name . "_" . $package_name;	
+                    my $new_file = lc "instances" . $dr . $new_package_name;
+                    # mkdir "Data_Type_Instances";
+                    copy("templates/Data_Type.ads", "n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
+                    copy("templates/Data_Type.adb", "n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
+                    $fileList{"stub"}{getKey($new_file . ".ads")} = {"abs" => "n:/Stubs", "rel" => ""};
+					$fileList{"stub"}{getKey($new_file . ".adb")} = {"abs" => "n:/Stubs", "rel" => ""};
+                    print LOG "Instances\.$new_package_name has been created\n";
+					
+					$dataTypeInstanceParameters =~ /G_Value_Type\s*=>\s*(\S+)\s*,/i;
+					my $gValueType = $1;
+					
+					my $typePrefix = "";
+					if ($gValueType =~ /(.*)\./) {
+						$typePrefix = "with $1;";
+					}
+					
+					$dataTypeInstanceParameters =~ /G_Default_Value\s*=>\s*(\S+)\s*(\)|,)/i;
+					my $gDefaultValue = $1;
+					
+					my $gUnitOfMeasure = "Types.None";
+					if ($dataTypeInstanceParameters =~ /G_Unit_Of_Measure\s*=>\s*(\S+)\s*,/i) {
+						$gUnitOfMeasure = $1;
+					}
+
+                    # editing the new ada spec file
+                    open(DT, "<n:/Stubs/$new_file.ads") or die "error opening n:/Stubs/$new_file.ads";
+                    my @new_dt_inst = <DT>;
+                    close DT;
+                    open (DT, ">n:/Stubs/$new_file.ads");
+                    for (@new_dt_inst){
+                        s/Data_Type.ads/$new_file.ads/;
+                        s/with TYPE_PREFIX;/with $typePrefix/;
+                        s/INSTANCE_NAME/$new_package_name/;
+                        s/G_VALUE_TYPE_PARAMATER/$gValueType/;
+                        s/G_DEFAULT_VALUE_PARAMATER/$gDefaultValue/;
+                        s/G_UNIT_OF_MEASURE_PARAMETER/$gUnitOfMeasure/;
+                        s/G_PRECISION_PARAMETER/1/;
+                        if (@uses != ()) {
+                            s/with USE/@uses/;
+                        }
+                        else {
+                            s/with USE//;	
+                        }
+                        print DT;
+                    }
+                    close DT;
+
+                    # editing the new ada body file
+                    open(DT, "<n:/Stubs/$new_file.adb") or die "error opening n:/Stubs/$new_file.adb";
+                    @new_dt_inst = <DT>;
+                    close DT;
+                    open (DT, ">n:/Stubs/$new_file.adb");
+                    for (@new_dt_inst){
+                        s/INSTANCE_NAME/$new_package_name/;
+                        print DT;
+                    }
+                    close DT;
+                    
+					push @dt_package_names, $package_name;
+                    push(@withs, $new_package_name);
+                }
+
+                $modded = 1;
+
+            }
+
+            # DATA_TYPE END
+
+            # PORT_TYPE BEGIN
+
+            if ($content =~ m/package\s+(\S*)\s+is\s+new\s+Port_Type(.*?);/m) {
+			
+				$counters[1]++;
+
+                my $portTypeInstanceParameters = $2;
+				
+				$portTypeInstanceParameters =~ /g_Data_Package\s*=>\s*([^\)|^\s]+)/i;
+				my $gDataPackage = $1;
+				
+				$portTypeInstanceParameters =~ /g_Name\s*=>\s*\"(.*?)\"/i;
+				my $gName = $1;
+				
+				$portTypeInstanceParameters =~ /g_Identifier\s*=>\s*\"(.*?)\"/i;
+				my $gIdentifier = $1;
+				
+				if ($gDataPackage =~ /(.*)\.(.*)/) {
+					$type_prefix = "Manager." . $1 . "_";
+				}
+				else {
+					print LOG "WARNING: circular dependency in $original_package_name";
+				}
+
+
+				$new_package_name = $original_package_name . "_PT";
+
+				# creating new files
+
+				my $new_file = lc "instances" . $dr . $new_package_name;
+				# mkdir "Port_Type_Instances";
+				copy("templates/Port_Type.ads","n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
+				copy("templates/Port_Type.adb","n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
+				$fileList{"stub"}{getKey($new_file . ".ads")} = {"abs" => "n:/Stubs", "rel" => ""};
+				$fileList{"stub"}{getKey($new_file . ".adb")} = {"abs" => "n:/Stubs", "rel" => ""};
+				print LOG "Instances\.$new_package_name has been created\n";
+
+				# editing the new ada spec file
+				open(DT, "<n:/Stubs/$new_file.ads") or die "error opening n:/Stubs/$new_file.ads";
+				my @new_pt_inst = <DT>;
+				close DT;
+				open (DT, ">n:/Stubs/$new_file.ads");
+				foreach (@new_pt_inst) {
+					s/Port_Type.ads/$new_file.ads/;
+					s/INSTANCE_NAME/$new_package_name/;
+					s/with DATA_TYPE_INSTANCE;/with $type_prefix$gDataPackage;\n/;
+					s/renames DATA_TYPE_INSTANCE/renames $type_prefix$gDataPackage/;
+					s/G_NAME_PARAMETERS/"$gName"/;
+					s/G_IDENTIFIER_PARAMETERS/"$gIdentifier"/;
+					print DT;
+				}
+				
+				close DT;
+				open(DT, "<n:/Stubs/$new_file.adb") or die "error opening n:/Stubs/$new_file.adb";
+				@new_pt_inst = <DT>;
+				close DT;
+				open (DT, ">n:/Stubs/$new_file.adb");
+				foreach (@new_pt_inst) {
+					s/INSTANCE_NAME/$new_package_name/;
+					print DT;
+				}
+				close DT;
+
+				push(@withs, $new_package_name);
+
+                $modded = 1;
+            }
+
+            # PORT_TYPE END
+
+            # Generic_Operator BEGIN
+
+            if ($content =~ m/is new Generic_Operator([\(|\s]*)/) {
+			
+				$counters[2]++;
+
+                my $comp_ident;
+                my $comp_name;
+                my $OUtput_pt_ident;
+                my $g_PT_Package;
+                my $constant_value;
+
+                while ($content =~ m/package\s+(\S+)\s+is\s+new\s+Generic_Operator(.*?);/gm){
+
+                    my $genericOperatorInstanceParameters = $1;
+
+                    $genericOperatorInstanceParameters =~ /Component_Identifier\s*=>\s*(.*?)\s*,/i;
+                    my $componentIdentifier = $1;
+
+                    $genericOperatorInstanceParameters =~ /Component_Name\s*=>\s*(.*?)\s*,/i;
+                    my $componentName = $1;
+
+                    $genericOperatorInstanceParameters =~ /Output_PT_Identifier\s*=>\s*(.*?)\s*,/i;
+                    my $outputPTIdentifier = $1;
+
+                    $genericOperatorInstanceParameters =~ /g_PT_Package\s*=>\s*(.*?)\.PT\s*,/i;
+                    my $gPTPackage = $1;
+
+                    $genericOperatorInstanceParameters =~ /Constant_Value\s*=>\s*(.*?)\s*\)/i;
+                    my $constantValue = $1;
+					
+					$type_prefix = "";
+                    if ($constantValue =~ /(.*)\.(.*)/) {
+						$type_prefix = "with $1;";
+					}
+
+                    $new_package_name = $package_name . "_GO";
+
+                    # creating the new files
+
+                    my $new_file = lc "instances" . $dr . $new_package_name;
+                    # mkdir "Generic_Operator_Instances";
+                    copy("templates/Generic_Operator.ads","n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
+                    copy("templates/Generic_Operator.adb","n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
+                    $fileList{"stub"}{getKey($new_file . ".ads")} = {"abs" => "n:/Stubs", "rel" => ""};
+					$fileList{"stub"}{getKey($new_file . ".adb")} = {"abs" => "n:/Stubs", "rel" => ""};
+                    print LOG "Instances\.$new_package_name has been created\n";
+
+                    # editing the new ada spec file
+
+                    open(DT, "<n:/Stubs/$new_file.ads") or die "error opening $new_file in stubs";
+                    my @new_go_int = <DT>;
+                    close DT;
+                    open (DT, ">n:/Stubs/$new_file.ads");
+                    foreach (@new_go_int) {
+                        s/Generic_Operator.ads/Instances-$new_package_name\.ads/;
+                        s/INSTANCE_NAME/$new_package_name/;
+                        s/COMPONENT_IDENTIFIER_INSTANCE/$componentIdentifier/;
+                        s/COMPONENT_NAME_INSTANCE/$componentName/;
+                        s/OUTPUT_PT_IDENTIFIER_INSTANCE/$outputPTIdentifier/;
+                        s/g_PT_PACKAGE_INSTANCE/Instances.$gPTPackage\_PT/;
+                        s/CONSTANT_VALUE_INSTANCE/$constantValue/;
+                        s/with TYPE_PREFIX;/$type_prefix/;
+                        print DT;
+                    }
+                    close DT;
+
+                    # editing the new ada body file
+                    open(DT, "<n:/Stubs/$new_file.adb") or die "error opening $new_file in stubs";
+                    @new_go_int = <DT>;
+                    close DT;
+                    open (DT, ">n:/Stubs/$new_file.adb");
+                    foreach (@new_go_int) {
+                        s/INSTANCE_NAME/$new_package_name/;
+                        print DT;
+                    }
+                    close DT;
+
+                    push(@withs, $new_package_name);
+                }
+
+                $modded = 1;
+            }
+        }
+
 		# close $fh;
 
-		# my $package_name;
-		# my $dt_package_name;
-		# my $original_package_name;
-		# my $new_package_name;
-		# my $type_prefix;
-		# my @withs = ();
-		# my @uses = ();
-		# my @dt_package_names = ();
+		# Generic_Operator END
 
-		# my $modded = 0;
+		# editing the original file
 
-		# $content =~ m/package (Manager\.)?(.*) is/;
-		# $original_package_name_manager = $1;
-		# $original_package_name = $2;
+		if ($modded == 1) {
 
-		# # TODO ez igy nem az igazi, elég lenne a use-okat kigyűjteni
-		# while ($content =~ /with (.*);\n(.*\n)?use (.*);/g) {
-			# push @uses, "with $1;\n$2use $3;\n";
-		# }
-
-		# # DATA_TYPE BEGIN
-
-		# # if file has not been modified yet
-		# if ($content !~ m/-- The file has been modified for testing/) {
-        
-            # # if file contains Data_Type instantiation
-            # if ($content =~ m/is.*?new.*?Data_Type/m){
-
-                # while ($content =~ m/package\s+(\S*)\s+is\s+new\s+Data_Type(.*?)\);/gm) {
-				
-					# $counters[0]++;
-				
-                    # # get package name
-                    # $package_name = $1;
-					# my $dataTypeInstanceParameters = $2;
-
-                    # # creating new files
-                    # $new_package_name = $original_package_name . "_" . $package_name;	
-                    # my $new_file = lc "Manager" . $dr . $new_package_name;
-                    # # mkdir "Data_Type_Instances";
-                    # copy("templates/manager-data_type_gen.ads", "n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
-                    # copy("templates/manager-data_type_gen.adb", "n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
-                    # addFileToList("n:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
-                    # addFileToList("n:/Stubs/", "manager$dr$new_package_name", "body", \@g_generated_sources);
-                    # print LOG "Manager\.$new_package_name has been created\n";
-                    # $dataTypeCount++;
-					
-					# $dataTypeInstanceParameters =~ /G_Value_Type\s*=>\s*(\S+)\s*,/i;
-					# my $gValueType = $1;
-					
-					# my $typePrefix = "";
-					# if ($gValueType =~ /(.*)\./) {
-						# $typePrefix = "with $1;";
-					# }
-					
-					# $dataTypeInstanceParameters =~ /G_Default_Value\s*=>\s*(\S+)\s*(\)|,)/i;
-					# my $gDefaultValue = $1;
-					
-					# my $gUnitOfMeasure = "Types.None";
-					# if ($dataTypeInstanceParameters =~ /G_Unit_Of_Measure\s*=>\s*(\S+)\s*,/i) {
-						# $gUnitOfMeasure = $1;
-					# }
-
-                    # # editing the new ada spec file
-                    # open(DT, "<n:/Stubs/$new_file.ads") or die "error opening n:/Stubs/$new_file.ads";
-                    # @g_lines = <DT>;
-                    # close DT;
-                    # open (DT, ">n:/Stubs/$new_file.ads");
-                    # for (@g_lines){
-                        # s/Manager.Data_Type_Gen.ads/$new_file.ads/;
-                        # s/with TYPE_PREFIX;/with $type_prefix;/
-                        # s/INSTANCE_NAME/$new_package_name/;
-                        # s/G_VALUE_TYPE_PARAMATER/$value_type/;
-                        # s/G_DEFAULT_VALUE_PARAMATER/$default_value/;
-                        # s/G_UNIT_OF_MEASURE_PARAMETER/$unit_of_measure/;
-                        # s/G_PRECISION_PARAMETER/1/;
-                        # if (@uses != ()) {
-                            # s/with USE/@uses/;
-                        # }
-                        # else {
-                            # s/with USE//;	
-                        # }
-                        # print DT;
-                    # }
-                    # close DT;
-
-                    # # editing the new ada body file
-                    # open(DT, "<n:/Stubs/$new_file.adb") or die "error opening n:/Stubs/$new_file.adb";
-                    # @g_lines = <DT>;
-                    # close DT;
-                    # open (DT, ">n:/Stubs/$new_file.adb");
-                    # for (@g_lines){
-                        # s/INSTANCE_NAME/$new_package_name/;
-                        # print DT;
-                    # }
-                    # close DT;
-                    
-					# push @dt_package_names, $package_name;
-                    # push(@withs, $new_package_name);
-                # }
-
-                # $modded = 1;
-
-            # }
-
-            # # DATA_TYPE END
-
-            # # PORT_TYPE BEGIN
-
-            # if ($content =~ m/package\s+(\S*)\s+is\s+new\s+Port_Type(.*?);/m) {
-			
-				# $counters[1]++;
-
-                # my $portTypeInstanceParameters = $2;
-				
-				# $portTypeInstanceParameters =~ /g_Data_Package\s*=>\s*([^\)|^\s]+)/i;
-				# my $gDataPackage = $1;
-				
-				# $portTypeInstanceParameters =~ /g_Name\s*=>\s*\"(.*?)\"/i;
-				# my $gName = $1;
-				
-				# $portTypeInstanceParameters =~ /g_Identifier\s*=>\s*\"(.*?)\"/i;
-				# my $gIdentifier = $1;
-				
-				# if ($gDataPackage =~ /(.*)\.(.*)/) {
-					# $type_prefix = "Manager." . $1 . "_";
-				# }
-				# else {
-					# print LOG "WARNING: circular dependency in $original_package_name";
-				# }
-
-
-				# $new_pt_package_name = $original_package_name . "_PT";
-
-				# # creating new files
-
-				# my $new_file = lc "Manager" . $dr . $new_pt_package_name;
-				# # mkdir "Port_Type_Instances";
-				# copy("templates/manager-port_type_gen.ads","n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
-				# copy("templates/manager-port_type_gen.adb","n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
-				# addFileToList("n:/Stubs/", "manager$dr$new_pt_package_name", "spec", \@g_generated_sources);
-				# addFileToList("n:/Stubs/", "manager$dr$new_pt_package_name", "body", \@g_generated_sources);
-				# print LOG "Manager\.$new_pt_package_name has been created\n";
-				# $portTypeCount++;
-
-				# # editing the new ada spec file
-				# open(DT, "<n:/Stubs/$new_file.ads") or die "error opening n:/Stubs/$new_file.ads";
-				# @g_lines = <DT>;
-				# close DT;
-				# open (DT, ">n:/Stubs/$new_file.ads");
-				# foreach (@g_lines) {
-					# s/Manager.Port_Type_Gen.ads/$new_file.ads/;
-					# s/INSTANCE_NAME/$new_pt_package_name/;
-					# s/with DATA_TYPE_INSTANCE;/with $type_prefix$dt_package_name;\n/;
-					# s/renames DATA_TYPE_INSTANCE/renames $type_prefix$dt_package_name/;
-					# s/G_NAME_PARAMETERS/"$PTC"/;
-					# s/G_IDENTIFIER_PARAMETERS/"$Ident"/;
-					# print DT;
-				# }
-				
-				# close DT;
-				# open(DT, "<n:/Stubs/$new_file.adb") or die "error opening n:/Stubs/$new_file.adb";
-				# @g_lines = <DT>;
-				# close DT;
-				# open (DT, ">n:/Stubs/$new_file.adb");
-				# foreach (@g_lines) {
-					# s/INSTANCE_NAME/$new_pt_package_name/;
-					# print DT;
-				# }
-				# close DT;
-
-				# push(@withs, $new_pt_package_name);
-
-                # $modded = 1;
-            # }
-
-            # # PORT_TYPE END
-
-            # # Generic_Operator BEGIN
-
-            # if ($content =~ m/is new Generic_Operator([\(|\s]*)/) {
-			
-				# $counters[2]++;
-
-                # my $comp_ident;
-                # my $comp_name;
-                # my $OUtput_pt_ident;
-                # my $g_PT_Package;
-                # my $constant_value;
-
-                # while ($content =~ m/package\s+(\S+)\s+is\s+new\s+Generic_Operator(.*?);/gm){
-
-                    # my $genericOperatorInstanceParameters = $1;
-
-                    # $genericOperatorInstanceParameters =~ /Component_Identifier\s*=>\s*(.*?)\s*,/i;
-                    # my $componentIdentifier = $1;
-
-                    # $genericOperatorInstanceParameters =~ /Component_Name\s*=>\s*(.*?)\s*,/i;
-                    # my $componentName = $1;
-
-                    # $genericOperatorInstanceParameters =~ /Output_PT_Identifier\s*=>\s*(.*?)\s*,/i;
-                    # my $outputPTIdentifier = $1;
-
-                    # $genericOperatorInstanceParameters =~ /g_PT_Package\s*=>\s*(.*?)\.PT\s*,/i;
-                    # my $gPTPackage = $1;
-
-                    # $genericOperatorInstanceParameters =~ /Constant_Value\s*=>\s*(.*?)\s*\)/i;
-                    # my $constantValue = $1;
-					
-					# $type_prefix = "";
-                    # if ($constantValue =~ /(.*)\.(.*)/) {
-						# $type_prefix = "with $1;";
-					# }
-
-                    # $new_package_name = $package_name . "_GO";
-
-                    # # creating the new files
-
-                    # my $new_file = lc "Manager" . $dr . $new_package_name;
-                    # # mkdir "Generic_Operator_Instances";
-                    # copy("templates/manager-generic_operator.ads","n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
-                    # copy("templates/manager-generic_operator.adb","n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
-                    # addFileToList("n:/Stubs/", "manager$dr$new_package_name", "spec", \@g_generated_sources);
-                    # addFileToList("n:/Stubs/", "manager$dr$new_package_name", "body", \@g_generated_sources);
-                    # print LOG "Manager\.$new_package_name has been created\n";
-                    # $genericOperatorCount++;
-
-                    # # editing the new ada spec file
-
-                    # open(DT, "<n:/Stubs/$new_file.ads") or die "error opening $new_file in stubs";
-                    # @g_lines = <DT>;
-                    # close DT;
-                    # open (DT, ">n:/Stubs/$new_file.ads");
-                    # foreach (@g_lines) {
-                        # s/Vital.Generic_Operator.ads/Manager-$new_package_name\.ads/;
-                        # s/INSTANCE_NAME/$new_package_name/;
-                        # s/COMPONENT_IDENTIFIER_INSTANCE/$comp_ident/;
-                        # s/COMPONENT_NAME_INSTANCE/$comp_name/;
-                        # s/OUTPUT_PT_IDENTIFIER_INSTANCE/$OUtput_pt_ident/;
-                        # s/g_PT_PACKAGE_INSTANCE/Manager.$g_PT_Package\_PT/;
-                        # s/CONSTANT_VALUE_INSTANCE/$constant_value/;
-                        # s/with TYPE_PREFIX;/$type_prefix/;
-                        # print DT;
-                    # }
-                    # close DT;
-
-                    # # editing the new ada body file
-                    # open(DT, "<n:/Stubs/$new_file.adb") or die "error opening $new_file in stubs";
-                    # @g_lines = <DT>;
-                    # close DT;
-                    # open (DT, ">n:/Stubs/$new_file.adb");
-                    # foreach (@g_lines) {
-                        # s/INSTANCE_NAME/$new_package_name/;
-                        # print DT;
-                    # }
-                    # close DT;
-
-                    # push(@withs, $new_package_name);
-                # }
-
-                # $modded = 1;
-            # }
-        # }
-
-		# # close $fh;
-
-		# # Generic_Operator END
-
-		# # editing the original file
-
-		# if ($modded == 1) {
-
-			# print LOG $original_package_name . " was modified\n";
+			print LOG $original_package_name . " was modified\n";
             
-            # $content = "-- The file has been modified for testing\n" . $content;
+            $content = "-- The file has been modified for testing\n" . $content;
 
-			# foreach $dt (@dt_package_names) {
-				# $content =~ s/( *)package $dt is(.*)/--HOST_TEST_BEGIN\n$1package $dt renames Manager\.$original_package_name\_$dt;\n$1package $dt\_Original is$2\n--HOST_TEST_END/;
-			# }
+			foreach my $dt (@dt_package_names) {
+				$content =~ s/( *)package $dt is(.*)/--HOST_TEST_BEGIN\n$1package $dt renames Instances\.$original_package_name\_$dt;\n$1package $dt\_Original is$2\n--HOST_TEST_END/;
+			}
 
-			# $content =~ s/\n( *)package (.*) is new Attribute\.(.*)Data_Package => (\w*)(.*)/\n--HOST_TEST_BEGIN\n$1package $2 is new Attribute\.$3Data_Package => $4\_Original$5\n--HOST_TEST_END/g;
+			$content =~ s/\n( *)package (.*) is new Attribute\.(.*)Data_Package => (\w*)(.*)/\n--HOST_TEST_BEGIN\n$1package $2 is new Attribute\.$3Data_Package => $4\_Original$5\n--HOST_TEST_END/g;
 
-			# $content =~	s/( *)package (.*) is new Port_Type(.*),/--HOST_TEST_BEGIN\n$1package $2 renames Manager.$new_pt_package_name;\n$1package $2\_Original is new Port_Type$3,\n--HOST_TEST_END/;
-			# $content =~	s/( *)g_Data_Package => ([\w|\.]*)( *)\);/--HOST_TEST_BEGIN\n$1g_Data_Package => $2\_Original$3\);\n--HOST_TEST_END/;
+			$content =~	s/( *)package (.*) is new Port_Type(.*),/--HOST_TEST_BEGIN\n$1package $2 renames Instances.$new_package_name;\n$1package $2\_Original is new Port_Type$3,\n--HOST_TEST_END/;
+			$content =~	s/( *)g_Data_Package => ([\w|\.]*)( *)\);/--HOST_TEST_BEGIN\n$1g_Data_Package => $2\_Original$3\);\n--HOST_TEST_END/;
 
-			# $content =~ s/package (.*) is new Generic_Operator(.*)/--HOST_TEST_BEGIN\npackage $1 renames Manager\.$new_package_name;\n--package $1 is new Generic_Operator$2/;
+			$content =~ s/package (.*) is new Generic_Operator(.*)/--HOST_TEST_BEGIN\npackage $1 renames Instances\.$new_package_name;\n--package $1 is new Generic_Operator$2/;
 
-			# $content =~ s/pragma Elaborate_All\s*\(Generic_Operator\)/--HOST_TEST_BEGIN\n--pragma Elaborate_All(Generic_Operator)\n--HOST_TEST_END/;
-			# $content =~ s/\n([\(|\s]*)Component_Identifier/\n--$1Component_Identifier/;
-			# $content =~ s/( *)Component_Name/--$1Component_Name/;
-			# $content =~ s/( *)Output_PT_Identifier/--$1Output_PT_Identifier/;
-			# $content =~ s/( *)g_PT_Package/--$1g_PT_Package/;
-			# $content =~ s/( *)Constant_Value(.*);/--$1Constant_Value$1;\n--HOST_TEST_END/;
-			# $content =~ s/with Generic_Operator;/--HOST_TEST_BEGIN\n--with Generic_Operator;\nwith Manager\.$new_package_name;\n--HOST_TEST_END/;
+			$content =~ s/pragma Elaborate_All\s*\(Generic_Operator\)/--HOST_TEST_BEGIN\n--pragma Elaborate_All(Generic_Operator)\n--HOST_TEST_END/;
+			$content =~ s/\n([\(|\s]*)Component_Identifier/\n--$1Component_Identifier/;
+			$content =~ s/( *)Component_Name/--$1Component_Name/;
+			$content =~ s/( *)Output_PT_Identifier/--$1Output_PT_Identifier/;
+			$content =~ s/( *)g_PT_Package/--$1g_PT_Package/;
+			$content =~ s/( *)Constant_Value(.*);/--$1Constant_Value$1;\n--HOST_TEST_END/;
+			$content =~ s/with Generic_Operator;/--HOST_TEST_BEGIN\n--with Generic_Operator;\nwith Instances\.$new_package_name;\n--HOST_TEST_END/;
 
-			# open (DT, ">$file");		
-			# $to_insert = "";
-			# foreach $w (@withs) {
-				# $to_insert = $to_insert . "with Manager.$w;\n";
-			# }
-			# $content =~ s/package (.*) is( *)\n/--HOST_TEST_BEGIN\n$to_insert--HOST_TEST_END\n\npackage $1 is\n/;
-			# print DT $content;
-			# close DT;
+			open (DT, ">$file");		
+			my $to_insert = "";
+			foreach my $w (@withs) {
+				$to_insert = $to_insert . "with Instances.$w;\n";
+			}
+			$content =~ s/package (.*) is( *)\n/--HOST_TEST_BEGIN\n$to_insert--HOST_TEST_END\n\npackage $1 is\n/;
+			print DT $content;
+			close DT;
 
-		# }
-	# }
+		}
+	}
 	
-	# return ($counters[0], $counters[1], $counters[2]);
-# }
+	return ($counters[0], $counters[1], $counters[2]);
+}
 
 # ****************************
 # insertElab
@@ -1634,9 +1641,9 @@ sub main {
 	print "Starting compile routine for sources\n";
 	compile_routine("n:/GNAT/U500.gpr");
 
-	# print "Generating instances... ";
-	# (my $dataTypeCount, my $portTypeCount, my $genericOperatorCount) = createInstances();
-	# print "Done. (DT: $dataTypeCount; PT: $portTypeCount; GO: $genericOperatorCount)\n";
+	print "Generating instances... ";
+	(my $dataTypeCount, my $portTypeCount, my $genericOperatorCount) = createInstances();
+	print "Done. (DT: $dataTypeCount; PT: $portTypeCount; GO: $genericOperatorCount)\n";
 	
 	# # TODO do it automatically 1.3.0
 	# print "Copy custom modifications to the stubs folder! Press ENTER when done"; <STDIN>;
