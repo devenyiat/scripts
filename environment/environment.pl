@@ -341,6 +341,11 @@ sub getStubs {
             getStubs($cf->ent, $stub_variables_reference, $result_reference);
         }
         else { if (not $called_package ~~ @g_exceptions) {
+        
+            if (not $called_package ~~ @definestubs) {
+                push(@definestubs, $called_package);
+            }
+        
             $$result_reference = $$result_reference . "\n                -- STUB " . $cf->ent->longname() . " (";
             my @params = $cf->ent->ents("Ada Declare", "Ada Parameter");
             foreach my $p (@params) {
@@ -864,7 +869,7 @@ sub update {
     my $result = "";
     
     foreach my $line (@lines) {
-        $line =~ s/Author \(.*\)/Author ($main::initials)/;
+        $line =~ s/\*\*\*\*     Author \(.*\)/****     Author ($main::initials)/;
         $line =~ s/PTU last run on software release \(.*\)/PTU last run on software release ($main::release)/;
         $line =~ s/PTU last mod.* \(.*\)/PTU last modification date ($main::date)/;
         $line =~ s/PTU testing environment version: .*/PTU testing environment version: $main::environmentversion/;
