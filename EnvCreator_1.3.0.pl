@@ -55,6 +55,8 @@ sub scandirs {
 			scandirs($base, $reldir . "/" . $file, $ref, $_[3]);
 		}
 	}
+    
+    chdir($settings{"work_dir"});
 }
 
 # ****************************
@@ -66,6 +68,8 @@ sub scandirs {
 #	$_[4] : totype (source / stub)
 # ****************************
 sub copyFile {
+
+    print LOG "$_[0] $_[1] $_[2] $_[3] $_[4]\n";
 
 	my $package = substr($_[0], 0, -5);
     my $type = substr($_[0], -4);
@@ -133,7 +137,7 @@ sub copydir {
 			my $toCopy = 0;
 			if ($#{$files{$key}} != 0) {
 				print "There is more than one $key\n";
-				# TODO 1.3.0 choose 
+				# TODO 1.3.1 choose 
 			}
 			my $fromDir = $files{$key}[$toCopy]{"abs"};
 			my $toDir;
@@ -185,7 +189,6 @@ sub copyDiff {
 				copyFile($key, $fromDir, $toDir, $_[4], $_[5]);
 			}
 			else {
-				print $fileInTemp . $fileInSource;
 				my $stat1 = stat($fileInTemp);
 				my $stat2 = stat($fileInSource);
 				if ($stat1->mtime > $stat2->mtime) {
@@ -217,6 +220,9 @@ sub copyDiff {
 #	$_[0] : file
 # ****************************
 sub readFile {
+
+    print LOG "readFile: $_[0]\n";
+
 	my $wholefile = "";
 	my @fileByLines;
 	open FH, "<$_[0]" or die "error reading $_[0]";
@@ -247,6 +253,8 @@ sub readExceptions {
 #	return : key
 # ****************************
 sub getKey {
+
+    print LOG "getKey: $_[0] $_[1]\n";
     
     my $specRegExp = "(.*)" . $settings{$_[1] . "_spec_ext"};
 	my $bodyRegExp = "(.*)" . $settings{$_[1] . "_body_ext"};
@@ -299,6 +307,8 @@ sub getType {
 #	return : file name
 # ****************************
 sub convertKeyToFileName {
+
+    print LOG "convertKeyToFileName: $_[0] $_[1]\n";
 	
     my $package = substr($_[0], 0, -5);
     my $type = substr($_[0], -4);
@@ -406,7 +416,7 @@ sub updateDatabase {
 # ****************************
 sub selectFile {
 
-	# checkPoint("called selectFile with $_[0].$_[1]");
+	print LOG "selectFile: $_[0]\n";
 
 	my $counter = 0;
 	my @result;
@@ -455,6 +465,9 @@ sub selectFile {
 #	spec / body
 # ****************************
 sub addFile {
+    
+    print LOG "addFile: $_[0] $_[1] $_[2]\n";
+
     my $package = substr($_[0], 0, -5);
 	if (not $fileList{$locations{$_[1]}}{lc $_[0]}) {
 		
@@ -480,11 +493,15 @@ sub addFile {
 # ****************************
 # addSpecFile
 #  	$_[0] : package
+#  	$_[1] : dir
 # ****************************
 sub addSpecFile {
-	my $result = addFile($_[0] . ".spec", "n:/Additional_Files", 1);
+
+    print LOG "addSpecFile: $_[0] $_[1]\n";
+
+	my $result = addFile($_[0] . ".spec", $_[1], 1);
 	if ($result ne "no match" && $result ne "existing file") {
-		gatherPackages($result);
+		gatherPackages($result, $_[1]);
 	}
 }
 
@@ -495,6 +512,8 @@ sub addSpecFile {
 # ****************************
 sub createBodyForPackage
 {
+
+    print LOG "createBodyForPackage: $_[0] $_[1]\n";
 	
 	# checkPoint("called createBodyForPackage with $_[0] $_[1]");
 
@@ -682,7 +701,7 @@ sub getSubunits {
 # ****************************
 sub addBodyFile {
 
-	# checkPoint("called addBodyFile with $_[0]\n");
+	print LOG "addBodyFile: $_[0] $_[1]\n";
 
 	if ($_[1] eq "n:/Stubs" and $fileList{"additional"}{$_[0] . ".body"}) {
 		copyFile($_[0] . ".body", "n:/Additional_Files", "n:/Stubs", "source", "stub");
@@ -711,8 +730,8 @@ sub addBodyFile {
 		else {
 			my $result = addFile($_[0] . ".body", $_[1], 1);
 			if ($result ne "no match" and $result ne "existing file") {
-				gatherPackages($result);
-				(my $file, my @temp) = readFile($result);
+				gatherPackages($result, $_[1]);
+				(my $file, my @temp) = readFile($_[1] . "/" . $result);
 				if ($file =~ m/separate/) {
 					updateDatabase();
 					openDatabase();
@@ -732,15 +751,16 @@ sub addBodyFile {
 # ****************************
 # getImports
 #	$_[0] : file
+#	$_[1] : dir
 # ****************************
 sub getImports {
 
-	# checkPoint("called getImports with $_[0].$_[1]\n");
+	print LOG "getImports: $_[0] $_[1]\n";
 
 	my @imports = ();
 	# $file = getAbsolutePathFromRegistryValue(getRegistryValueFromPackageName($_[0], $_[1], \@g_unmodified_sources)) . getFileNameFromPackageName($_[0], $_[1]);
-	my $key = getKey($_[0], "source");
-	my $file = $fileList{"source"}{$key}{"abs"} . "/" . $_[0];
+	my $key = getKey($_[0], $locations{$_[1]});
+	my $file = $fileList{$locations{$_[1]}}{$key}{"abs"} . "/" . $_[0];
 
 	# open FH, "<$file";
 	# my @lines = ();
@@ -754,7 +774,7 @@ sub getImports {
 	while ($lines[$idx] !~ m/^package/i and $idx<=$#lines) {
 		if ($lines[$idx] =~ m/^with\s*(.*?)\s*;/) {
 			my $packageToAdd = $1;
-			if (not $fileList{"source"}{lc $packageToAdd . ".spec"}) {
+			if (not $fileList{$locations{$_[1]}}{lc $packageToAdd . ".spec"}) {
 				# my $sepRegExp1 = "\\.";
 				# my $sepRegExp2 = $settings{"source_spec_ext"};
 				# $packageToAdd =~ s/$sepRegExp1/$sepRegExp2/g;
@@ -774,8 +794,11 @@ sub getImports {
 # ****************************
 # gatherPackages
 #	$_[0] : file
+#	$_[1] : dir
 # ****************************
 sub gatherPackages {
+
+    print LOG "gatherPackages: $_[0] $_[1]\n";
 
 	my $package = getPackageName($_[0], "source");
 	my @listToGather = ();
@@ -786,14 +809,14 @@ sub gatherPackages {
 		push(@listToGather, $parent_package);
 	}
 
-	@listToGather = (@listToGather, getImports($_[0]));
+	@listToGather = (@listToGather, getImports($_[0], $_[1]));
 
 	foreach my $packageToAdd (@listToGather) {
-		if (not $fileList{"source"}{lc $packageToAdd . ".spec"}) {
-			addSpecFile($packageToAdd);
+		if (not $fileList{$locations{$_[1]}}{lc $packageToAdd . ".spec"}) {
+			addSpecFile($packageToAdd, $_[1]);
 		}
-		if (not $fileList{"source"}{lc $packageToAdd . ".body"}) {
-			addBodyFile($packageToAdd, "n:/Additional_Files");
+		if (not $fileList{$locations{$_[1]}}{lc $packageToAdd . ".body"}) {
+			addBodyFile($packageToAdd, $_[1]);
 		}
 	}
 
@@ -803,6 +826,8 @@ sub gatherPackages {
 # generateStubBodies
 # ****************************
 sub generateStubBodies {
+    
+    print LOG "generateStubBodies\n";
 	
 	my $idx = 0;
 	$settings{"is_running"} = 1;
@@ -889,6 +914,8 @@ sub printCustomError {
 our @neededFiles;
 sub error_handler {
 
+    print LOG "error_handler: $_[0] $_[1]\n";
+
 	my @errors = readerror();
 	
 	my $status = 0;
@@ -899,12 +926,14 @@ sub error_handler {
 		if ($e =~ m/file \"(.*)\" not found/) {
 			if (not $1 ~~ @neededFiles) {
 				push (@neededFiles, $1);
-				addSpecFile(getPackageName($1, $locations{$dir}));
+				addSpecFile(getPackageName($1, $locations{$dir}), $dir);
 			}
 			else {
+                $settings{"is_running"} = 0;
 				print "Missing file in ClearCase: $1 cannot be found, but needed\n" . 
 					"Please remove the references in the source, then press ENTER";
 				<STDIN>;
+                $settings{"is_running"} = 1;
 			}
 			$status = 1;
 		}
@@ -953,7 +982,7 @@ sub error_handler {
 			close FH;
 			$status = 1;
 
-			# TODO 1.3.0
+			# TODO 1.3.1
 			# if ($absolutePath ne "n:/Stubs/") {
 				# copyFile($registryValue, "n:/Stubs/", 0)
 			# }
@@ -1019,9 +1048,9 @@ sub createInstances {
 		if ($content !~ m/-- The file has been modified for testing/) {
         
             # if file contains Data_Type instantiation
-            if ($content =~ m/is.*?new.*?Data_Type/m){
+            if ($content =~ m/\n\s*package\s+(\S*)\s+is\s+new\s+Data_Type/){
 
-                while ($content =~ m/package\s+(\S*)\s+is\s+new\s+Data_Type(.*?)\);/gm) {
+                while ($content =~ m/\n\s*package\s+(\S*)\s+is\s+new\s+Data_Type(.*?)\);/gs) {
 				
 					$counters[0]++;
 				
@@ -1035,8 +1064,8 @@ sub createInstances {
                     # mkdir "Data_Type_Instances";
                     copy("templates/Data_Type.ads", "n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
                     copy("templates/Data_Type.adb", "n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
-                    $fileList{"stub"}{getKey($new_file . ".ads")} = {"abs" => "n:/Stubs", "rel" => ""};
-					$fileList{"stub"}{getKey($new_file . ".adb")} = {"abs" => "n:/Stubs", "rel" => ""};
+                    $fileList{"stub"}{getKey($new_file . ".ads", "stub")} = {"abs" => "n:/Stubs", "rel" => ""};
+					$fileList{"stub"}{getKey($new_file . ".adb", "stub")} = {"abs" => "n:/Stubs", "rel" => ""};
                     print LOG "Instances\.$new_package_name has been created\n";
 					
 					$dataTypeInstanceParameters =~ /G_Value_Type\s*=>\s*(\S+)\s*,/i;
@@ -1047,7 +1076,7 @@ sub createInstances {
 						$typePrefix = "with $1;";
 					}
 					
-					$dataTypeInstanceParameters =~ /G_Default_Value\s*=>\s*(\S+)\s*(\)|,)/i;
+					$dataTypeInstanceParameters =~ /G_Default_Value\s*=>\s*(\S+)\s*\S*/i;
 					my $gDefaultValue = $1;
 					
 					my $gUnitOfMeasure = "Types.None";
@@ -1062,7 +1091,7 @@ sub createInstances {
                     open (DT, ">n:/Stubs/$new_file.ads");
                     for (@new_dt_inst){
                         s/Data_Type.ads/$new_file.ads/;
-                        s/with TYPE_PREFIX;/with $typePrefix/;
+                        s/with TYPE_PREFIX;/$typePrefix/;
                         s/INSTANCE_NAME/$new_package_name/;
                         s/G_VALUE_TYPE_PARAMATER/$gValueType/;
                         s/G_DEFAULT_VALUE_PARAMATER/$gDefaultValue/;
@@ -1101,7 +1130,7 @@ sub createInstances {
 
             # PORT_TYPE BEGIN
 
-            if ($content =~ m/package\s+(\S*)\s+is\s+new\s+Port_Type(.*?);/m) {
+            if ($content =~ m/\n\s*package\s+(\S*)\s+is\s+new\s+Port_Type(.*?);/s) {
 			
 				$counters[1]++;
 
@@ -1117,61 +1146,69 @@ sub createInstances {
 				my $gIdentifier = $1;
 				
 				if ($gDataPackage =~ /(.*)\.(.*)/) {
-					$type_prefix = "Manager." . $1 . "_";
+					$type_prefix = "Instances." . $1 . "_";
+                    $gDataPackage = $2;
 				}
 				else {
+					# TODO 1.3.1 stop running
+                    $gDataPackage = "";
 					print LOG "WARNING: circular dependency in $original_package_name";
 				}
 
+                if ($gDataPackage ne "") {
+                
+                    $new_package_name = $original_package_name . "_PT";
 
-				$new_package_name = $original_package_name . "_PT";
+                    # creating new files
 
-				# creating new files
+                    my $new_file = lc "instances" . $dr . $new_package_name;
+                    # mkdir "Port_Type_Instances";
+                    copy("templates/Port_Type.ads","n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
+                    copy("templates/Port_Type.adb","n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
+                    $fileList{"stub"}{getKey($new_file . ".ads", "stub")} = {"abs" => "n:/Stubs", "rel" => ""};
+                    $fileList{"stub"}{getKey($new_file . ".adb", "stub")} = {"abs" => "n:/Stubs", "rel" => ""};
+                    print LOG "Instances\.$new_package_name has been created\n";
 
-				my $new_file = lc "instances" . $dr . $new_package_name;
-				# mkdir "Port_Type_Instances";
-				copy("templates/Port_Type.ads","n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
-				copy("templates/Port_Type.adb","n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
-				$fileList{"stub"}{getKey($new_file . ".ads")} = {"abs" => "n:/Stubs", "rel" => ""};
-				$fileList{"stub"}{getKey($new_file . ".adb")} = {"abs" => "n:/Stubs", "rel" => ""};
-				print LOG "Instances\.$new_package_name has been created\n";
+                    # editing the new ada spec file
+                    open(DT, "<n:/Stubs/$new_file.ads") or die "error opening n:/Stubs/$new_file.ads";
+                    my @new_pt_inst = <DT>;
+                    close DT;
+                    open (DT, ">n:/Stubs/$new_file.ads");
+                    foreach (@new_pt_inst) {
+                        s/Port_Type.ads/$new_file.ads/;
+                        s/INSTANCE_NAME/$new_package_name/;
+                        s/with DATA_TYPE_INSTANCE;/with $type_prefix$gDataPackage;\n/;
+                        s/renames DATA_TYPE_INSTANCE/renames $type_prefix$gDataPackage/;
+                        s/G_NAME_PARAMETERS/"$gName"/;
+                        s/G_IDENTIFIER_PARAMETERS/"$gIdentifier"/;
+                        print DT;
+                    }
+                    
+                    close DT;
+                    open(DT, "<n:/Stubs/$new_file.adb") or die "error opening n:/Stubs/$new_file.adb";
+                    @new_pt_inst = <DT>;
+                    close DT;
+                    open (DT, ">n:/Stubs/$new_file.adb");
+                    foreach (@new_pt_inst) {
+                        s/INSTANCE_NAME/$new_package_name/;
+                        print DT;
+                    }
+                    close DT;
 
-				# editing the new ada spec file
-				open(DT, "<n:/Stubs/$new_file.ads") or die "error opening n:/Stubs/$new_file.ads";
-				my @new_pt_inst = <DT>;
-				close DT;
-				open (DT, ">n:/Stubs/$new_file.ads");
-				foreach (@new_pt_inst) {
-					s/Port_Type.ads/$new_file.ads/;
-					s/INSTANCE_NAME/$new_package_name/;
-					s/with DATA_TYPE_INSTANCE;/with $type_prefix$gDataPackage;\n/;
-					s/renames DATA_TYPE_INSTANCE/renames $type_prefix$gDataPackage/;
-					s/G_NAME_PARAMETERS/"$gName"/;
-					s/G_IDENTIFIER_PARAMETERS/"$gIdentifier"/;
-					print DT;
-				}
-				
-				close DT;
-				open(DT, "<n:/Stubs/$new_file.adb") or die "error opening n:/Stubs/$new_file.adb";
-				@new_pt_inst = <DT>;
-				close DT;
-				open (DT, ">n:/Stubs/$new_file.adb");
-				foreach (@new_pt_inst) {
-					s/INSTANCE_NAME/$new_package_name/;
-					print DT;
-				}
-				close DT;
+                    push(@withs, $new_package_name);
 
-				push(@withs, $new_package_name);
-
-                $modded = 1;
+                    $modded = 1;
+                    
+                }
             }
 
             # PORT_TYPE END
 
             # Generic_Operator BEGIN
+			
+			# TODO 1.3.1 while is not necessary
 
-            if ($content =~ m/is new Generic_Operator([\(|\s]*)/) {
+            if ($content =~ m/is\s+new\s+Generic_Operator([\(|\s]*)/) {
 			
 				$counters[2]++;
 
@@ -1181,9 +1218,9 @@ sub createInstances {
                 my $g_PT_Package;
                 my $constant_value;
 
-                while ($content =~ m/package\s+(\S+)\s+is\s+new\s+Generic_Operator(.*?);/gm){
+                while ($content =~ m/\n\s*package\s+(\S+)\s+is\s+new\s+Generic_Operator(.*?);/gs){
 
-                    my $genericOperatorInstanceParameters = $1;
+                    my $genericOperatorInstanceParameters = $2;
 
                     $genericOperatorInstanceParameters =~ /Component_Identifier\s*=>\s*(.*?)\s*,/i;
                     my $componentIdentifier = $1;
@@ -1205,7 +1242,7 @@ sub createInstances {
 						$type_prefix = "with $1;";
 					}
 
-                    $new_package_name = $package_name . "_GO";
+                    $new_package_name = $original_package_name . "_GO";
 
                     # creating the new files
 
@@ -1213,8 +1250,8 @@ sub createInstances {
                     # mkdir "Generic_Operator_Instances";
                     copy("templates/Generic_Operator.ads","n:/Stubs/" . $new_file . ".ads") or die "Copy failed: $!";
                     copy("templates/Generic_Operator.adb","n:/Stubs/" . $new_file . ".adb") or die "Copy failed: $!";
-                    $fileList{"stub"}{getKey($new_file . ".ads")} = {"abs" => "n:/Stubs", "rel" => ""};
-					$fileList{"stub"}{getKey($new_file . ".adb")} = {"abs" => "n:/Stubs", "rel" => ""};
+                    $fileList{"stub"}{getKey($new_file . ".ads", "stub")} = {"abs" => "n:/Stubs", "rel" => ""};
+					$fileList{"stub"}{getKey($new_file . ".adb", "stub")} = {"abs" => "n:/Stubs", "rel" => ""};
                     print LOG "Instances\.$new_package_name has been created\n";
 
                     # editing the new ada spec file
@@ -1313,7 +1350,7 @@ sub insertElab {
 
 		my $filename = $sources{$key}[0]{"abs"} . "/" . convertKeyToFileName($key, "source");
 
-		if (getType($key, "source") eq "body") {
+		if (substr($key, -4) eq "body") {
 
 			(my $content, my @lines) = readFile($filename);
             
@@ -1321,7 +1358,7 @@ sub insertElab {
 
             	$result += 1;
 
-                $content =~ m/package body (.*) is/;
+                $content =~ m/package\s+body\s+(\S+)\s+is/;
                 my $package = $1;
     
                 open FH, ">$filename" or die "error";
@@ -1346,10 +1383,13 @@ sub insertElab {
                     $lines[$index+1] =~ s/\s*begin/-- HOST_TEST_BEGIN\nprocedure Elab is\nbegin\n-- HOST_TEST_END/;
                 }
                 
+                $content = "";
                 foreach my $line (@lines) {
-                    $line =~ s/end $package;/\n-- HOST_TEST_BEGIN\nend Elab;\n-- HOST_TEST_END\n\nend $package;/i;
-                    print FH $line;
+                    $content .= $line;
                 }
+                
+                $content =~ s/end\s+$package\s*;/\n-- HOST_TEST_BEGIN\nend Elab;\n-- HOST_TEST_END\n\nend $package;/i;
+                print FH $content;
     
                 close FH;
             
@@ -1364,16 +1404,77 @@ sub insertElab {
 }
 
 # ****************************
+# compareFiles
+# ****************************
+sub compareFiles {
+	my $file1 = $_[0];
+	my $file2 = $_[1];
+
+	open FH1, "<$file1" or die "$file1";
+	open FH2, "<$file2" or die "$file2";
+	
+	my @file1_lines = <FH1>;
+	my @file2_lines = <FH2>;
+	
+	my $equal = 1;
+	if ($#file1_lines != $#file2_lines) {
+		$equal = 0;
+	}
+	
+	my $idx = 0;
+	while ($idx < $#file1_lines and $equal == 1) {
+        if ($file1_lines[$idx] eq $file2_lines[$idx]) {
+            $equal = 1;
+        }
+        else {
+            $equal = 0;
+        }
+		$idx++;
+	}
+    
+    close FH1;
+    close FH2;
+
+	return $equal;
+}
+
+# ****************************
+# checkTemplates
+# ****************************
+sub checkTemplates {
+	my $templatesdir = $settings{"work_dir"} . "/templates";
+	my $equal = 0;
+	if (-e $templatesdir . "/Data_Type.ads") {
+		my $file1 = $templatesdir . "/Data_Type.ads.bak";
+		my $file2 = $fileList{"source"}{"data_type.spec"}{"abs"} . "/Data_Type.ads";
+		$equal += compareFiles($file1, $file2);
+	}
+	if (-e $templatesdir . "/Port_Type.ads") {
+		my $file1 = $templatesdir . "/Port_Type.ads.bak";
+		my $file2 = $fileList{"source"}{"port_type.spec"}{"abs"} . "/Port_Type.ads";
+		$equal += compareFiles($file1, $file2);
+	}
+	if (-e $templatesdir . "/Generic_Operator.ads") {
+		my $file1 = $templatesdir . "/Generic_Operator.ads.bak";
+		my $file2 = $fileList{"source"}{"generic_operator.spec"}{"abs"} . "/Generic_Operator.ads";
+		$equal += compareFiles($file1, $file2);
+	}
+
+	if ($equal < 3) {
+		print "check the template files; they are not up to date";
+	}
+}
+
+# ****************************
 # autoFixer
 # ****************************
 sub autoFixer {
 
 	my %fixes;
-	scandirs("c:/Users/Attila/Documents/GitHub/scripts/fixes", "", \%fixes, "stub");
-	print Dumper %fixes;
+	scandirs($settings{"work_dir"} . "/fixes", "", \%fixes, "stub");
 	foreach my $key (keys %fixes) {
 		if (not $availableAdditinalSources{$key}) {
-			$availableAdditinalSources{$key} = $fixes{$key};
+			@{$availableAdditinalSources{$key}} = @{$fixes{$key}};
 		}
 	}
 	
@@ -1383,24 +1484,9 @@ sub autoFixer {
 		
 			my $file1 = "n:/Stubs/" . convertKeyToFileName($key, "stub");
 			my $file2 = $fixes{$key}[0]{"abs"} . "/" . convertKeyToFileName($key, $fixes{$key}[0]{"type"});
-	
-			open FH1, "<$file1";
-			open FH2, "<$file2";
+    
+			my $equal = compareFiles($file1, $file2);
 			
-			my @file1_lines = <FH1>;
-			my @file2_lines = <FH2>;
-			
-			my $equal = 1;
-			if ($#file1_lines != $#file2_lines) {
-				$equal = 0;
-			}
-			
-			my $idx = 0;
-			while ($idx < $#file1_lines and $equal == 1) {
-				$equal = $file1_lines[$idx] eq $file2_lines[$idx];
-				$idx++;
-			}
-
 			if ($equal == 1) {
 				copy("$file2.fixed", "$file1");
 			}
@@ -1415,6 +1501,7 @@ sub autoFixer {
 # ****************************
 # compile_routine
 #	$_[0] : gpr file
+#	$_[1] : full path of gprbuild.exe
 # ****************************
 sub compile_routine {
 
@@ -1432,8 +1519,8 @@ sub compile_routine {
 	my $workdir = $settings{"work_dir"};
 
 	$settings{"is_running"} = 1;
-	# TDOD 1.3.0 check GNAT's location
-	system("\"c:\\GNAT\\2013\\bin\\gprbuild.exe\" -q -d $_[0] 1>$workdir/stat 2>$workdir/error");
+
+	system("\"$_[1]\" -q -d $_[0] 1>$workdir/stat 2>$workdir/error");
 	$settings{"is_running"} = 0;
 
 	my @errors = readerror();
@@ -1456,7 +1543,7 @@ sub compile_routine {
 	}
 
 	if ($status != 2) {
-		compile_routine($_[0]);
+		compile_routine($_[0], $_[1]);
 	}
 }
 
@@ -1484,6 +1571,7 @@ sub processConfigurationFile {
 	$values[6] =~ s/\\/\//g;
 	$settings{"clearcase_path"} = $values[6];
 	$settings{"exceptions_file"} = $values[7];
+	$settings{"gprbuild"} = $values[8];
 
 }
 
@@ -1558,7 +1646,7 @@ end U500;";
 sub main {
 
 	system("cls");
-	print "Environment Creator 1.x.x\n\n";
+	print "Environment Creator 1.3.0\n\n";
 
 	init();
 
@@ -1573,12 +1661,12 @@ sub main {
 	print "Copying sources... ";
 	if ($settings{"build_mode"} eq "new") {
         # copy all ada files
-		# TODO 1.3.0 check for multiple files
+		# TODO 1.3.1 check for multiple files
 		copydir("n:/temp", "n:/Source", "all", 0, "source", "source");
 	}
 	else {
         # replace the old ones with the newer ones
-		# TODO 1.3.0 merge with copydir
+		# TODO 1.3.1 merge with copydir
 		copyDiff("n:/temp", "n:/Source", "all", 0, "source", "source");
 	}
 	print "Done.\n";
@@ -1600,10 +1688,11 @@ sub main {
 		}
 	}
 	
-	# TODO 1.3.0 insert elab SCV / MT
-	print "Modifying sources... ";
-	my $number_of_emcs = insertElab();
-	print "Done. ($number_of_emcs)\n";
+	if ($settings{"purpose"} eq "MT") {
+		print "Modifying sources... ";
+		my $number_of_emcs = insertElab();
+		print "Done. ($number_of_emcs)\n";
+	}
 	
 	# copy all ads to stubs
 	print "Preparing Stubs folder... ";
@@ -1614,7 +1703,7 @@ sub main {
 	# check for dependencies
 	print "Gathering additional packages\n";
 	foreach my $source (keys %{$fileList{"source"}}) {
-		gatherPackages(convertKeyToFileName($source, "source"));
+		gatherPackages(convertKeyToFileName($source, "source"), "n:/Additional_Files");
 	}
 
 	print "Updating database\n";
@@ -1639,14 +1728,16 @@ sub main {
 
 	$settings{"build_phase"} = 1;
 	print "Starting compile routine for sources\n";
-	compile_routine("n:/GNAT/U500.gpr");
-
+	my $gprbuildexe = $settings{"gprbuild"} . "gprbuild.exe";
+	compile_routine("n:/GNAT/U500.gpr", $gprbuildexe);
+	
+	# instance generation
+	checkTemplates();
 	print "Generating instances... ";
 	(my $dataTypeCount, my $portTypeCount, my $genericOperatorCount) = createInstances();
 	print "Done. (DT: $dataTypeCount; PT: $portTypeCount; GO: $genericOperatorCount)\n";
 	
-	# # TODO do it automatically 1.3.0
-	# print "Copy custom modifications to the stubs folder! Press ENTER when done"; <STDIN>;
+
 	print "Trying to eliminate known issues...\n";
 	$settings{"is_running"} = 0;
 	autoFixer();
@@ -1660,7 +1751,7 @@ sub main {
 	$settings{"progress_bar_value"} = 0;
 	
 	print "\n\nStarting compile routine for stubs\n";
-	compile_routine("n:/GNAT/U500Stub.gpr");
+	compile_routine("n:/GNAT/U500Stub.gpr", $gprbuildexe);
 
 	system("cls");
 	print "\n-------------------------------------------------------";
