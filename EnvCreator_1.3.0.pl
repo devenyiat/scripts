@@ -69,7 +69,7 @@ sub scandirs {
 # ****************************
 sub copyFile {
 
-    print LOG "$_[0] $_[1] $_[2] $_[3] $_[4]\n";
+    print LOG "copyFile: $_[0] $_[1] $_[2] $_[3] $_[4]\n";
 
 	my $package = substr($_[0], 0, -5);
     my $type = substr($_[0], -4);
@@ -550,6 +550,8 @@ sub createBodyForPackage
 sub _generateBody
 {
 
+    print LOG "_generateBody\n";
+
 	print LOG "gnatstub -f -t -In:/Stubs/ $_[0] n:/Stubs/ \n";
 	my $workdir = $settings{"work_dir"};
 	system("gnatstub -f -t -In:/Stubs/ $_[0] n:/Stubs/ 2>$workdir/error");
@@ -683,6 +685,9 @@ sub _generateBody
 #	$_[0] : package
 # ****************************
 sub getSubunits {
+
+    print LOG "getSubunits: $_[0]\n";
+
 	my @result = ();
 	my @p = $db->lookup($_[0], "Ada Package");
     if (@p != ()) {
@@ -878,6 +883,9 @@ sub generateStubBodies {
 
 
 sub readerror {
+
+    print LOG "readerror\n";
+
 	# $semaphore->down();
 	my @result = ();
 	my $workdir = $settings{"work_dir"};
@@ -923,13 +931,14 @@ sub error_handler {
 
 	foreach my $e (@errors) {
 	
-		if ($e =~ m/file \"(.*)\" not found/) {
+		if ($e =~ m/file \"(.*)\" not found/ and not $fileList{$locations{$dir}}{getKey($1, $locations{$dir})}) {
 			if (not $1 ~~ @neededFiles) {
 				push (@neededFiles, $1);
 				addSpecFile(getPackageName($1, $locations{$dir}), $dir);
 			}
 			else {
                 $settings{"is_running"} = 0;
+                print LOG "$1 is missing\n";
 				print "Missing file in ClearCase: $1 cannot be found, but needed\n" . 
 					"Please remove the references in the source, then press ENTER";
 				<STDIN>;
@@ -998,6 +1007,7 @@ sub error_handler {
 			}
 			$status = 1;
 		}
+        
 	}
 
 	return $status;
@@ -1130,7 +1140,7 @@ sub createInstances {
 
             # PORT_TYPE BEGIN
 
-            if ($content =~ m/\n\s*package\s+(\S*)\s+is\s+new\s+Port_Type(.*?);/s) {
+            if ($content =~ m/\n\s*package\s+(\S*)\s+is\s+new\s+Port_Type\s*\((.*?);/s) {
 			
 				$counters[1]++;
 
@@ -1504,6 +1514,8 @@ sub autoFixer {
 #	$_[1] : full path of gprbuild.exe
 # ****************************
 sub compile_routine {
+
+    print LOG "compile_routine: $_[0] $_[1]\n";
 
 	my $dir;
 	if ($_[0] eq "n:/GNAT/U500.gpr") {
