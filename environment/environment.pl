@@ -62,6 +62,9 @@ sub convertDotToHyphen {
 	my $result = $_[0];
 	$result =~ tr/./-/;
 	$result = lc $result;
+    if ($result =~ /-ad(.)$/) {
+        $result = substr($result, 0, -4) . ".ad$1";
+    }
 	return $result;
 }
 
@@ -312,6 +315,14 @@ sub subprogram_entities {
 	return @result;
 }
 
+our %stub_names;
+
+sub cleanStubNames {
+
+    undef %stub_names;
+
+}
+
 sub getStubVariableName {
 	my $stub = $_[0];
 	my $result = ();
@@ -322,6 +333,14 @@ sub getStubVariableName {
 	else {
 		$result = "Stub_" . $stub->ref("Ada Declarein")->ent->name() . "_" . $stub->name();
 	}
+    
+    if ($stub_names{$result}) {
+        $stub_names{$result}++;
+        $result .= "_" . $stub_names{$result};
+    }
+    else {
+        $stub_names{$result} = 1;
+    }
 
 	return $result;
 }
@@ -677,8 +696,11 @@ sub ptumaker {
 		my $var_globals = setGlobals($sub);
 		my @stubVariables = ();
 		my $stubs_str = "";
+        cleanStubNames();
         getStubs($sub, \@stubVariables, \$stubs_str);
+        cleanStubNames();
 		my $stubVariablesStr = generateStubDeclaration(\@stubVariables);
+        cleanStubNames();
 		my $stubVarsSetter = setStubVars(\@stubVariables);
 		foreach my $line (@act) {
 			$line =~ s/SUBPROGRAM1/$name/;
@@ -752,7 +774,8 @@ sub rtpmaker {
             print "\t$file\n";
             my @act = @part_two;
             foreach my $line (@act) {
-                $line =~ s/SOURCE/$file/;
+                my $converted_file = convertDotToHyphen($file);
+                $line =~ s/SOURCE/$converted_file/;
                 $line =~ s/QUID/$id/;
                 if ($file =~ m/ads/) {
                     $line =~ s/INTEGRATED/true/;
@@ -937,11 +960,11 @@ foreach my $package (@packages) {
 	my @p = $db->lookup($package, "Ada Package");
 	my @s = $p[0]->refs("Ada Declare Stub");
 
-	push(@files_to_copy, lc convertDotToHyphen($p[0]->longname()) . ".ads");
-	push(@files_to_copy, lc convertDotToHyphen($p[0]->longname()) . ".adb");
+	push(@files_to_copy, lc $p[0]->longname() . ".ads");
+	push(@files_to_copy, lc $p[0]->longname() . ".adb");
 
 	foreach (@s) {
-		my $temp = lc convertDotToHyphen($package) . "-" . $_->ent()->name() . ".adb";
+		my $temp = lc $package . "." . $_->ent()->name() . ".adb";
 		push(@files_to_copy, $temp);
 	}
 
@@ -999,13 +1022,13 @@ if ($update != 1) {
 
     foreach my $f (@files_to_copy) {
         my $idx = 0;
-        while ($sources[$idx] !~ m/$f/ and $idx <= $#sources) {
+        while ($sources[$idx] !~ m/$f/i and $idx <= $#sources) {
             $idx++;
         }
         print $sources[$idx]. "\n";
         $sources[$idx] =~ m/#dir: (.*)\/\/(.*) #file: (.*)/;
-        print "$1/$2$f". "\n";
-        copy("$1/$2$f", "t:/Test_Environments/$test_type\_$packageu/Source/$f");
+        # print "$1/$2$f". "\n";
+        copy("$1/$2$f", "t:/Test_Environments/$test_type\_$packageu/Source/" . convertDotToHyphen($f));
         my $loc = "$1/$2";
         $loc =~ tr/\//\\/;
         $main::filesloc{$f} = $loc;

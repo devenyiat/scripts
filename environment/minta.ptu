@@ -6,7 +6,7 @@ COMMENT ************************************************************************
 COMMENT ****     Author (MONOGRAM)
 COMMENT ****     PTU creation date (PRODDATE)
 COMMENT ****     PTU last run on software release (RELEASE)
-COMMENT ****     PTU last modificaton date (PRODDATE)
+COMMENT ****     PTU last modification date (PRODDATE)
 COMMENT ****     PTU testing environment version: VERSION
 COMMENT *******************************************************************************************
 COMMENT ****     Number of test specification scripts related to the component: 1

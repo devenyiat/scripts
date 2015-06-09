@@ -47,7 +47,8 @@ sub scandirs {
 		chdir($dir);
 		if (-f $file) {
 			my $regExpForFileName = "(.*)(" . $settings{"source_spec_ext"} . "|" . $settings{"source_body_ext"} . ")\$";
-			if ($file =~ /$regExpForFileName/) { 
+			if ($file =~ /$regExpForFileName/ and ($dir !~ /DEPRECATED/ and $dir !~ /Made/)) {
+                # print $file . "\n";
 				push(@{$ref->{lc getKey($file, $_[3])}}, {"abs" => $dir, "rel" => $reldir, "type" => $_[3]});
 			}
 		}
@@ -524,7 +525,7 @@ sub createBodyForPackage
 	my $bodyfile = "n:/Stubs/" . convertKeyToFileName($_[0] . ".body", "stub");
 
 	if (-e $bodyfile) {
-		# _updateBody($bodyfile);
+		_updateBody($bodyfile);
 		
 		$fileList{"stub"}{$_[0] . ".body"} = {"abs" => "n:/Stubs", "rel" => ""};
 		
@@ -547,6 +548,20 @@ sub createBodyForPackage
 	}
 }
 
+sub hasDiscriminant {
+
+	# checkPoint($_[0]);
+
+	my @p = $db->lookup($_[0], "Ada Type");
+	if (@p != ()) {
+		my @d = $p[0]->ents("Ada Declare", "Ada Discriminant Component");
+		if ($d[0] != "") {
+			return 1;
+		}
+	}
+	return 0;
+}
+
 sub _generateBody
 {
 
@@ -558,127 +573,112 @@ sub _generateBody
 
 }
 
-# sub _updateBody
-# {
+sub _updateBody
+{
 
-# 	my $filename = shift;
+	my $filename = shift;
 
-# 	readfile($filename);
+    (my $file, my @lines) = readFile($filename);
 
-# 	my $string = "";
-# 	my $package;
-# 	my $return_type;
-# 	my $infunc = 0;
+	my $string = "";
+    my $newstring = "";
+    my $paramString = "";
+	my $package;
+	my $return_type;
+	my $infunc = 0;
+    my $counter;
+    my $continue = 0;
+    my $line;
 
-# 	my @functions = ();
+	my @functions = ();
 
-# 	open FH, ">$filename";
+	open FH, ">$filename";
 
-# 	foreach (@g_lines) {
+	foreach (@lines) {
+    
+        if ($continue == 1) {
+            $continue = 0;
+            $line = $line . $_;
+        }
+        else {
+            $line = $_;
+        }
 
-# 		if (m/(\s+)end (\S*);$/) {
-# 			# $temp = $1;
-# 			$string =~ m/(.*)\.(.*)/;
-# 			$string = $1;
-# 		}
+		if ($line =~ m/(\s+)end (\S*);$/) {
+			# $temp = $1;
+			$string =~ m/(.*)\.(.*)/;
+			$string = $1;
+		}
 
-# 		if (m/body (\S*)/ or m/procedure (\S*)/ or m/function (\S*)/ or m/entry (\S*)/) {
-# 			if ($string ne "") {
-# 				$sp = $1;
-# 				$string = $string . "." . $1;
-# 			}
-# 			else {
-# 				$string = $1;
-# 				$package = $1;
-# 			}
+		if ($line =~ m/body (\S*)/ or $line =~ m/procedure (\S*)/ or $line =~ m/function (\S*)/ or $line =~ m/entry (\S*)/) {
+			if ($string ne "") {
+				# $sp = $1;
+				$string = $string . "." . $1;
+			}
+			else {
+				$string = $1;
+				$package = $1;
+			}
 
-# 			$newstring = $string;
+			$newstring = $string;
 
-# 			# print $newstring . "\n";
+            $paramString = "";
 
-# 			# $tempStr = $newstring;
-# 			# $tempStr =~ tr/\"//;
+			$newstring =~ tr/\"/'/;
+            my $newstring_for_understand = $string;
+            $newstring_for_understand =~ tr/\"//;
+			my $newstring_nometa = quotemeta($newstring);
 
-# 			# print $tempStr . "\n";
+			push(@functions, $newstring);
+			my @list = grep(/$newstring_nometa/, @functions);
+			$counter = $#list + 1;
+		}
 
-# 			# @spEntityArray = $db->lookup($tempStr);
-# 			# $spEntity = @spEntityArray[0];
-# 			$paramString = "";
-# 			# if (@spEntityArray != ()) {
-# 			# 	@spEntityParamArray = $spEntity->refs("Ada Declare", "Ada Parameter");
-# 			# 	foreach (@spEntityParamArray) {
-# 			# 		if ($_->ent->type =~ /out /) {
-# 			# 			print "out\n";
-# 			# 			$paramString = "Ada.Text_IO.Put_Line \(\"WARNING: out parameter\"\);\n";
-# 			# 		}
-# 			# 	}
-# 			# 	if ($spEntity->type() ne "") {
-# 			# 		$paramString = "Ada.Text_IO.Put_Line \(\"WARNING: ret value\"\);\n";
-# 			# 	}
-# 			# }
+		if ($line =~ m/return (\S*)( is)?\n/ and $1 !~ m/;/ and $return_type eq "") {
+			$return_type = $1;
+			# print $return_type . "\n";
+			if (hasDiscriminant($return_type) or hasDiscriminant("?*" . $return_type)) {
+				$return_type = $return_type . "(1)";
+			}
+		}
 
-# 			$newstring =~ tr/\"/'/;
-#             $newstring_for_understand = $string;
-#             $newstring_for_understand =~ tr/\"//;
-# 			$newstring_nometa = quotemeta($newstring);
+		if ($return_type ne "") {
+			# if (s/(\s*)?(.*)?(\s+)is/$1$2$3is\n$1  Result : $return_type := $init_value;/) {
+			if ($line =~ s/(\s*)?(.*)?(\s+)is/$1$2$3is\n$1  Result : $return_type;/) {
+				# $return_type = "";
+			}
+		}
 
-# 			push(@functions, $newstring);
-# 			@list = grep(/$newstring_nometa/, @functions);
-# 			$counter = $#list + 1;
-# 		}
+		$line =~ s/(\s*)pragma Compile_Time_Warning \(Standard.True,(.*)/$1Ada.Text_IO.Put_Line \(\"$newstring \#$counter is called\"\);/;
 
-# 		if (m/return (\S*)( is)?\n/ and $1 !~ m/;/) {
-# 			$return_type = $1;
-# 			# print $return_type . "\n";
-# 			if (hasDiscriminant($return_type) or hasDiscriminant("?*" . $return_type)) {
-# 				$return_type = $return_type . "(1)";
-# 			}
-# 			# if (isArray($return_type) or isArray("?*" . $return_type)) {
-# 			# 	$return_type = $return_type . "(1..1)";
-# 			# }
-# 		}
+		$line =~ s/package body $package is/with Ada.Text_IO;\npackage body $package is/;
 
+		$line =~ s/end $package;/begin\n\tAda.Text_IO.Put_Line \(\"$package is elaborated\"\);\nend $package;/;
 
-#         # TODO        
-#         # my $type_entitiy;
-#         # my $init_value = "";
-#         # @p = $db->lookup($newstring_for_understand, "Ada Procedure, Ada Function");
-#         # if (@p != ()) {
-#         #     # print $p[0]->longname();
-#         #     $type_entitiy = $p[0]->refs("Ada Typed");
-#         #     if ($type_entitiy != ()) {
-#         #         $type_entitiy = $p[0]->refs("Ada Typed")->ent;
-#         #         getSubItems(\$init_value, $type_entitiy, 1, 0);
-#         #     }
-#         # }
+		if ($paramString eq "") {
+			$line =~ s/(\s*)raise Program_Error;\n//;
+		}
+		else {
+			$line =~ s/(\s*)raise Program_Error;\n/$1$paramString/;
+		}
+        
+        if ($line =~ m/return / and $line !~ m/return $return_type/) {
+            if ($line !~ s/return ((\n|.)*?);/return Result;/s) {
+                $continue = 1;
+            }
+            else {
+                $return_type = "";
+            }
+        }
 
-# 		if ($return_type ne "") {
-# 			# if (s/(\s*)?(.*)?(\s+)is/$1$2$3is\n$1  Result : $return_type := $init_value;/) {
-# 			if (s/(\s*)?(.*)?(\s+)is/$1$2$3is\n$1  Result : $return_type;/) {
-# 				$return_type = "";
-# 			}
-# 		}
+        if ($continue == 0) {
+            print FH $line;
+        }
+		
+	}	
 
-# 		s/(\s*)pragma Compile_Time_Warning \(Standard.True,(.*)/$1Ada.Text_IO.Put_Line \(\"$newstring \#$counter is called\"\);/;
-
-# 		s/package body $package is/with Ada.Text_IO;\npackage body $package is/;
-
-# 		s/end $package;/begin\n\tAda.Text_IO.Put_Line \(\"$package is elaborated\"\);\nend $package;/;
-
-# 		if ($paramString eq "") {
-# 			s/(\s*)raise Program_Error;\n//;
-# 		}
-# 		else {
-# 			s/(\s*)raise Program_Error;\n/$1$paramString/;
-# 		}
-
-# 		s/return (.*);/return Result;/;
-
-# 		print FH;
-# 	}	
-
-# 	close FH;
-# }
+	close FH;
+}
 
 # ****************************
 # getSubunits
@@ -767,11 +767,6 @@ sub getImports {
 	my $key = getKey($_[0], $locations{$_[1]});
 	my $file = $fileList{$locations{$_[1]}}{$key}{"abs"} . "/" . $_[0];
 
-	# open FH, "<$file";
-	# my @lines = ();
-	# @lines = <FH>;
-	# close FH;
-
 	(my $whole, my @lines) = readFile($file);
 
 	my $idx = 0;
@@ -780,10 +775,6 @@ sub getImports {
 		if ($lines[$idx] =~ m/^with\s*(.*?)\s*;/) {
 			my $packageToAdd = $1;
 			if (not $fileList{$locations{$_[1]}}{lc $packageToAdd . ".spec"}) {
-				# my $sepRegExp1 = "\\.";
-				# my $sepRegExp2 = $settings{"source_spec_ext"};
-				# $packageToAdd =~ s/$sepRegExp1/$sepRegExp2/g;
-				# $fileToAdd = $packageToAdd . $settings{"source_spec_ext"};
 				push(@imports, $packageToAdd);
 			}
 			else {
@@ -1140,7 +1131,7 @@ sub createInstances {
 
             # PORT_TYPE BEGIN
 
-            if ($content =~ m/\n\s*package\s+(\S*)\s+is\s+new\s+Port_Type\s*\((.*?);/s) {
+            if ($content =~ m/\n\s*package\s+(\S*)\s+is\s+new\s+Port_Type(.*?);/s) {
 			
 				$counters[1]++;
 
@@ -1377,7 +1368,7 @@ sub insertElab {
                 my $index = $#lines-2;
                 while ($index > 0 and $count != -1) {
                 
-                    if ($lines[$index] =~ m/begin\n/) {
+                    if ($lines[$index] =~ m/^\s*begin\n/) {
                         $count -= 1;
                     }
                     if ($lines[$index] =~ m/end\s?(.*);/) {
@@ -1647,6 +1638,8 @@ end U500;";
 
 	# maybe someday..
     # open PACKAGELIST, ">$workdir/packageslist";
+    
+    openDatabase();
 
 }
 
@@ -1742,28 +1735,32 @@ sub main {
 	print "Starting compile routine for sources\n";
 	my $gprbuildexe = $settings{"gprbuild"} . "gprbuild.exe";
 	compile_routine("n:/GNAT/U500.gpr", $gprbuildexe);
-	
-	# instance generation
-	checkTemplates();
-	print "Generating instances... ";
-	(my $dataTypeCount, my $portTypeCount, my $genericOperatorCount) = createInstances();
-	print "Done. (DT: $dataTypeCount; PT: $portTypeCount; GO: $genericOperatorCount)\n";
-	
+    
+    if ($settings{"purpose"} eq "MT") {
+        
+        # instance generation
+        # checkTemplates();
+        # print "Generating instances... ";
+        # (my $dataTypeCount, my $portTypeCount, my $genericOperatorCount) = createInstances();
+        # print "Done. (DT: $dataTypeCount; PT: $portTypeCount; GO: $genericOperatorCount)\n";
+        
 
-	print "Trying to eliminate known issues...\n";
-	$settings{"is_running"} = 0;
-	autoFixer();
-	$settings{"is_running"} = 1;
-	
-	$settings{"build_phase"} = 2;
-	print "Generating bodies for stubs\n";
-	generateStubBodies();
+        # print "Trying to eliminate known issues...\n";
+        # $settings{"is_running"} = 0;
+        # autoFixer();
+        # $settings{"is_running"} = 1;
+        
+        $settings{"build_phase"} = 2;
+        print "Generating bodies for stubs\n";
+        generateStubBodies();
 
-	$settings{"build_phase"} = 3;
-	$settings{"progress_bar_value"} = 0;
-	
-	print "\n\nStarting compile routine for stubs\n";
-	compile_routine("n:/GNAT/U500Stub.gpr", $gprbuildexe);
+        $settings{"build_phase"} = 3;
+        $settings{"progress_bar_value"} = 0;
+        
+        print "\n\nStarting compile routine for stubs\n";
+        compile_routine("n:/GNAT/U500Stub.gpr", $gprbuildexe);
+        
+    }
 
 	system("cls");
 	print "\n-------------------------------------------------------";
